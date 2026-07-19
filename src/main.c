@@ -282,38 +282,27 @@ static void SdlRenderer_EndDraw() {
   SDL_UnlockTexture(g_texture);
 
 #ifdef __SWITCH__
-  // Draw slot menu overlay + notification text into the game texture
+  // Draw slot menu + notification overlay into the game texture
   bool show_slot = g_slot_menu_open || g_slot_menu_flash > 0;
   bool show_notify = g_notify_until > 0 && SDL_GetTicks() < g_notify_until;
   if (show_slot || show_notify) {
     uint8 *px; int px_pitch;
     if (SDL_LockTexture(g_texture, &g_sdl_renderer_rect, (void **)&px, &px_pitch) == 0) {
       int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      int bx = 4, by = 4, bw = 120, bh = 36;
+      if (show_notify && !show_slot) { bw = 160; bh = 28; }
+      // Dark overlay box
+      for (int y = by; y < by + bh && y < tex_h; y++) {
+        uint32 *row = (uint32 *)(px + y * px_pitch);
+        for (int x = bx; x < bx + bw && x < tex_w; x++)
+          row[x] = 0xC0000000;
+      }
       if (show_slot) {
-        // Dark overlay box at top-left
-        int bx = 4, by = 4, bw = 80, bh = 36;
-        for (int y = by; y < by + bh && y < tex_h; y++) {
-          uint32 *row = (uint32 *)(px + y * px_pitch);
-          for (int x = bx; x < bx + bw && x < tex_w; x++)
-            row[x] = 0xC0000000;
-        }
-        // Draw slot number
         RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
       }
       if (show_notify) {
-        // Notification text centered at bottom
-        int msg_len = 0;
-        for (const char *p = g_notify_text; *p; p++) msg_len++;
-        int text_w = msg_len * 6;
-        int nx = (tex_w - text_w) / 2;
-        int ny = tex_h - 24;
-        // Dark background
-        for (int y = ny - 2; y < ny + 9 && y < tex_h; y++) {
-          uint32 *row = (uint32 *)(px + y * px_pitch);
-          for (int x = nx - 4; x < nx + text_w + 4 && x < tex_w; x++)
-            row[x] = 0xC0000000;
-        }
-        RenderText(px + ny * px_pitch + nx * 4, px_pitch, g_notify_text, 0x00ff00);
+        int text_x = show_slot ? bx + 50 : bx + 8;
+        RenderText(px + (by + 8) * px_pitch + text_x * 4, px_pitch, g_notify_text, 0x00ff00);
         if (SDL_GetTicks() >= g_notify_until) g_notify_text[0] = 0;
       }
       SDL_UnlockTexture(g_texture);
@@ -355,35 +344,27 @@ static void SdlRenderer_EndDraw() {
       // Right half: second screen
       SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
     } else {
-      // Vertical: left half game (90° CW), right half second screen (90° CW)
+      // Vertical: left = game 16:9 (stretched to fill), right = second screen 4:3
       int half_w = ww / 2;
 
-      // Left half: game rotated 90° CW
+      // Left half: game fills completely (16:9 stretched)
       SDL_Rect left = { 0, 0, half_w, wh };
       SDL_RenderSetViewport(g_renderer, &left);
-      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
-      int rot_w = tex_h, rot_h = tex_w;  // after 90° CW rotation
-      int draw_w, draw_h;
-      if (rot_w * wh > rot_h * half_w) { draw_w = half_w; draw_h = rot_h * half_w / rot_w; }
-      else { draw_h = wh; draw_w = rot_w * wh / rot_h; }
-      SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
-      SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, &dst,
+      SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, NULL,
                        270.0, NULL, SDL_FLIP_NONE);
 
-      // Right half: second screen rendered to texture, then rotated 90° CW
+      // Right half: second screen at 4:3 (540×720 area, centered in half_w)
       if (g_ss_texture) {
         SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
-        SDL_Rect right = { half_w, 0, ww - half_w, wh };
-        SDL_RenderSetViewport(g_renderer, &right);
-        int ss_w = 640, ss_h = 360;
-        int ss_rot_w = ss_h, ss_rot_h = ss_w;
-        int ss_draw_w, ss_draw_h;
-        int right_w = ww - half_w;
-        if (ss_rot_w * wh > ss_rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = ss_rot_h * right_w / ss_rot_w; }
-        else { ss_draw_h = wh; ss_draw_w = ss_rot_w * wh / ss_rot_h; }
-        SDL_Rect ss_dst = { (right_w - ss_draw_w) / 2, (wh - ss_draw_h) / 2, ss_draw_w, ss_draw_h };
-        SDL_Rect ss_src = {0, 0, ss_w, ss_h};
-        SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &ss_dst,
+        // 4:3 ratio: height = wh, width = wh * 3 / 4
+        int ss43_h = wh;
+        int ss43_w = wh * 3 / 4;
+        if (ss43_w > half_w) { ss43_w = half_w; ss43_h = ss43_w * 4 / 3; }
+        int rx = half_w + (half_w - ss43_w) / 2;
+        int ry = (wh - ss43_h) / 2;
+        SDL_Rect right_dst = { rx, ry, ss43_w, ss43_h };
+        SDL_Rect ss_src = {0, 0, 640, 360};
+        SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &right_dst,
                          270.0, NULL, SDL_FLIP_NONE);
       }
     }
