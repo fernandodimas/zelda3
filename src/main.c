@@ -348,22 +348,34 @@ static void SdlRenderer_EndDraw() {
         SDL_RenderCopy(g_renderer, g_ss_texture, &ss_src, NULL);
       }
     } else {
-      // Vertical: left = game (fills half, rotated 270° CW), right = second screen (fills half, rotated 270° CW)
+      // Vertical: left = game 9:16, right = second screen 3:4
       int half_w = ww / 2;
 
-      // Left half: game fills completely, rotated
-      SDL_Rect left = { 0, 0, half_w, wh };
-      SDL_RenderSetViewport(g_renderer, &left);
-      SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, NULL,
-                       270.0, NULL, SDL_FLIP_NONE);
+      // Left half: game 9:16 (rotated 16:9)
+      {
+        SDL_Rect left = { 0, 0, half_w, wh };
+        SDL_RenderSetViewport(g_renderer, &left);
+        int rot_w = g_sdl_renderer_rect.h;  // 224
+        int rot_h = g_sdl_renderer_rect.w;  // 400
+        int draw_w, draw_h;
+        if (rot_w * wh > rot_h * half_w) { draw_w = half_w; draw_h = rot_h * half_w / rot_w; }
+        else { draw_h = wh; draw_w = rot_w * wh / rot_h; }
+        SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
+        SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, &dst,
+                         270.0, NULL, SDL_FLIP_NONE);
+      }
 
-      // Right half: second screen fills completely, rotated
+      // Right half: second screen 3:4 (rotated 4:3)
       if (g_ss_texture) {
         SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
-        SDL_Rect right = { half_w, 0, ww - half_w, wh };
+        int right_w = ww - half_w;
+        int rot_w = 360, rot_h = 640;  // 640×360 rotated → 360×640
+        int ss_draw_w, ss_draw_h;
+        if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
+        else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
+        SDL_Rect ss_dst = { half_w + (right_w - ss_draw_w) / 2, (wh - ss_draw_h) / 2, ss_draw_w, ss_draw_h };
         SDL_Rect ss_src = {0, 0, 640, 360};
-        SDL_RenderSetViewport(g_renderer, &right);
-        SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, NULL,
+        SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &ss_dst,
                          270.0, NULL, SDL_FLIP_NONE);
       }
     }
