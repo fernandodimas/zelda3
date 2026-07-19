@@ -757,7 +757,7 @@ static void RenderText(uint8 *dst, size_t pitch, const char *text, uint32 color)
     int idx = kSmallFontIndex(text[i]);
     const uint8 *glyph = kSmallFont[idx];
     for (int y = 0; y < 7; y++) {
-      uint32 *row = (uint32 *)(dst + y * pitch);
+      uint32 *row = (uint32 *)(dst + y * pitch * 4);
       uint8 bits = glyph[y];
       for (int x = 0; x < 5; x++) {
         if (bits & (0x20 >> x))
