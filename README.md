@@ -176,3 +176,79 @@ Additionally, the following commands are available:
 ## License
 
 This project is licensed under the MIT license. See 'LICENSE.txt' for details.
+
+---
+
+## Fork: Dual Screen, Multi-Language & Nintendo Switch Port
+
+This fork is based on two upstream projects:
+
+- **[snesrev/zelda3](https://github.com/snesrev/zelda3)** — The original C reimplementation of Zelda 3: A Link to the Past. Core engine, renderer, SNES PPU/DSP emulation, asset extraction, and all gameplay logic.
+- **[samyost1/zelda3-android](https://github.com/samyost1/zelda3-android)** (branch `dual-screen`) — Android port that introduced the dual-screen concept: a second screen UI with dungeon automap, overworld map, inventory management, gear view, and settings — all rendered from live game state via SDL.
+
+### Modifications applied
+
+#### 1. Nintendo Switch NRO build
+- Cross-compilation toolchain via DevKitPro (`aarch64-none-elf-gcc`)
+- `src/platform/switch/Makefile` — Switch-specific build with `-D__SWITCH__`, `libnx`, and SDL2 for Switch
+- `SDL_RenderSetLogicalSize` disabled on Switch for manual aspect-ratio-correct rendering
+- Output: `zelda3.nro` (8.5 MB) ready for Atmosphere homebrew launcher
+
+#### 2. Dual screen (vertical & horizontal split)
+- Ported from `samyost1/zelda3-android` dual-screen UI to desktop (SDL separate window) and Nintendo Switch (split viewport)
+- Full interactive second screen: 4 tabs (Map, Items, Gear, Settings), sidebar with game state, touch/click inventory management, dungeon automap, overworld map
+- Switch split modes toggled via **R3** (right stick click):
+  - **1 screen** — game fullscreen
+  - **Horizontal** — game left, second screen right
+  - **Vertical** — game top (rotated 90°), second screen bottom
+- `src/second_screen_sdl.c` — SDL frontend with draw primitives, theme textures (menu/parchment/stone), 77-icon tilemap, 38-glyph table
+- `src/second_screen.c` — Core game state access (SRAM, dungeon flags, link position, inventory) and action handlers (equip, assign, settings)
+- `src/second_screen_tables.h` — Generated icon and glyph tables from upstream tooling
+
+#### 3. Widescreen rendering (16:9)
+- `ExtendedAspectRatio = 16:9` enabled by default on Switch
+- Game renders at 16:9 aspect ratio instead of 4:3
+- In vertical split mode, the game is rotated 90° via `SDL_RenderCopyEx` to fit the portrait orientation
+
+#### 4. Multi-language support (PT, ES, DE, FR, JA, ZH, KO)
+- `Language` option in `zelda3.ini` — set to `pt` for Portuguese
+- Language pack file format: `zelda3_langpack_<lang>.dat` (signature `Zelda3_LP_v0`, 165 assets)
+- `OverlayLangpack()` overlays non-zero assets from langpack onto base `g_asset_ptrs[]`
+- `ZeldaSetLanguage()` in `zelda_rtl.c` selects dialogue font and text encoding by language ID
+- `assets/extract_langpack.py` — Generates language pack files from translated ROMs
+- Supports US base ROM + language pack overlay (no full ROM duplication needed)
+
+#### 5. Asset tools and theme system
+- `tools/secondscreen/gen_tables.py` — Generates `src/second_screen_tables.h` from `render_icons.py`
+- `tools/secondscreen/render_icons.py` — Icon and glyph sheet extraction from ROM
+- `tools/secondscreen/render_ui_assets.py` — UI texture generation from ROM
+- `assets/gen_linux_tables.py` — Generates `ss_textures.h` from PNG theme assets using Pillow
+- `assets/secondscreen/` — Upstream PNG theme assets (menu, parchment, stone textures) and JSON manifests from `samyost1/zelda3-android`
+
+#### 6. Additional code changes
+- `src/load_gfx.h/c` — `GetSpriteTilesetPacks()` exposed for second screen sprite rendering
+- `src/config.h/c` — `save_slot`, `dual_screen`, `GamepadMap_GetControls/SetControls`
+- `src/messaging.h/c` — `GetDungmapRoomShape()` declaration and implementation for dungeon map rendering
+- `src/zelda_rtl.c` — `ZeldaSetWidescreen()`, `ZeldaApplyDimFlashesPalette()`, `ZeldaSetLanguage()`
+- Switch touch input handling for both horizontal and vertical split modes
+
+### Files added or modified
+
+| File | Description |
+|------|-------------|
+| `src/second_screen_sdl.c` | SDL dual-screen frontend (desktop + Switch) |
+| `src/second_screen_sdl.h` | SDL frontend declarations, layout mode enum |
+| `src/second_screen.c` | Game state access and action handlers |
+| `src/second_screen.h` | SS_* function declarations |
+| `src/second_screen_tables.h` | Generated icon and glyph tables |
+| `src/platform/linux/ss_sheets.h` | Cell index tables for items/gear/glyphs |
+| `src/platform/linux/ss_textures.h` | PNG-baked theme textures |
+| `src/platform/switch/Makefile` | Switch cross-compilation build |
+| `src/platform/switch/zelda3.ini` | Switch config (dual screen, widescreen, PT) |
+| `src/platform/switch/zelda3.nro` | Compiled Switch homebrew binary |
+| `tools/secondscreen/gen_tables.py` | Table generation from render_icons.py |
+| `tools/secondscreen/render_icons.py` | Icon sheet extraction from ROM |
+| `tools/secondscreen/render_ui_assets.py` | UI texture extraction from ROM |
+| `assets/gen_linux_tables.py` | PNG-to-C-header texture baking |
+| `assets/secondscreen/` | Upstream PNG assets and JSON manifests |
+| `assets/extract_langpack.py` | Language pack extraction script |
