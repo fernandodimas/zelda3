@@ -293,16 +293,20 @@ static void SdlRenderer_EndDraw() {
       // Right half: second screen
       SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
     } else {
-      // Vertical: top half game, bottom half second screen
+      // Vertical: top half game (rotated 90°), bottom half second screen
       int half_h = wh / 2;
       SDL_Rect top = { 0, 0, ww, half_h };
       SDL_RenderSetViewport(g_renderer, &top);
+
+      // Rotate game texture 90° CW: original tex_w×tex_h becomes tex_h×tex_w
       int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      int rot_w = tex_h, rot_h = tex_w;  // swapped after 90° rotation
       int draw_w, draw_h;
-      if (tex_w * half_h > tex_h * ww) { draw_w = ww; draw_h = tex_h * ww / tex_w; }
-      else { draw_h = half_h; draw_w = tex_w * half_h / tex_h; }
+      if (rot_w * half_h > rot_h * ww) { draw_w = ww; draw_h = rot_h * ww / rot_w; }
+      else { draw_h = half_h; draw_w = rot_w * half_h / rot_h; }
       SDL_Rect dst = { (ww - draw_w) / 2, (half_h - draw_h) / 2, draw_w, draw_h };
-      SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
+      SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, &dst,
+                       90.0, NULL, SDL_FLIP_NONE);
 
       SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
     }
