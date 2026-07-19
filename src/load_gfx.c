@@ -1000,6 +1000,12 @@ int Decomp_spr(uint8 *dst, int gfx) {  // 80e772
   return 0x600;
 }
 
+const uint8 *GetSpriteTilesetPacks(int index) {
+  if (index < 0 || index >= 144)
+    return NULL;
+  return kSpriteTilesets[index];
+}
+
 int Decomp_bg(uint8 *dst, int gfx) {  // 80e78f
   return Decompress(dst, kBgGfx(gfx).ptr);
 }

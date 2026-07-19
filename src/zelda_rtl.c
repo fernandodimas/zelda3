@@ -1,5 +1,7 @@
 #include "zelda_rtl.h"
 #include "variables.h"
+#include "features.h"
+#include "config.h"
 #include "misc.h"
 #include "nmi.h"
 #include "poly.h"
@@ -264,7 +266,7 @@ static void ZeldaRunGameLoop() {
 
 void ZeldaInitialize() {
   g_zenv.dma = dma_init(NULL);
-  g_zenv.ppu = ppu_init(NULL);
+  g_zenv.ppu = ppu_init();
   g_zenv.ram = g_ram;
   g_zenv.sram = (uint8*)calloc(8192, 1);
   g_zenv.vram = g_zenv.ppu->vram;
@@ -887,4 +889,19 @@ void ZeldaWriteSram() {
   } else {
     fprintf(stderr, "Unable to write saves/sram.dat\n");
   }
+}
+
+void ZeldaSetWidescreen(bool enable) {
+  if (enable)
+    g_config.features0 |= kFeatures0_WidescreenVisualFixes;
+  else
+    g_config.features0 &= ~kFeatures0_WidescreenVisualFixes;
+  g_wanted_zelda_features = g_config.features0;
+}
+
+void ZeldaApplyDimFlashesPalette(bool enable) {
+  // Dim flashes is handled per-frame in the palette routines
+  // This function is called when the setting changes to trigger a palette refresh
+  if (main_module_index == 7 || main_module_index == 9)
+    flag_update_hud_in_nmi++;
 }

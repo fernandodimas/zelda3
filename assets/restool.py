@@ -24,6 +24,8 @@ optional.add_argument('--sprites-from-png', action='store_true', help="When comp
 
 args = parser.parse_args()
 
+support_multilanguage = args.extract_dialogue or bool(args.languages)
+
 if args.extract_dialogue:
   ROM = util.load_rom(args.rom, True)
   import extract_resources, sprite_sheets
@@ -31,7 +33,7 @@ if args.extract_dialogue:
   extract_resources.print_dialogue()
   sys.exit(0)
 
-ROM = util.load_rom(args.rom)
+ROM = util.load_rom(args.rom, support_multilanguage)
 
 want_compile = True
 

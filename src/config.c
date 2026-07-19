@@ -407,9 +407,18 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
       return ParseBool(value, &g_config.resume_msu);
     }
   } else if (section == 3) {
-    if (StringEqualsNoCase(key, "Autosave")) {
+    if (StringEqualsNoCase(key, "RomPath")) {
+      g_config.rom_path = value;
+      return true;
+    } else if (StringEqualsNoCase(key, "Autosave")) {
       g_config.autosave = (bool)strtol(value, (char**)NULL, 10);
       return true;
+    } else if (StringEqualsNoCase(key, "SaveSlot")) {
+      g_config.save_slot = (uint8)strtol(value, (char**)NULL, 10);
+      if (g_config.save_slot > 9) g_config.save_slot = 9;
+      return true;
+    } else if (StringEqualsNoCase(key, "DualScreen")) {
+      return ParseBool(value, &g_config.dual_screen);
     } else if (StringEqualsNoCase(key, "ExtendedAspectRatio")) {
       const char* s;
       int h = 224;
@@ -440,6 +449,8 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
       return true;
     } else if (StringEqualsNoCase(key, "DisplayPerfInTitle")) {
       return ParseBool(value, &g_config.display_perf_title);
+    } else if (StringEqualsNoCase(key, "RunWithoutEmu")) {
+      return ParseBool(value, &g_config.run_without_emu);
     } else if (StringEqualsNoCase(key, "DisableFrameDelay")) {
       return ParseBool(value, &g_config.disable_frame_delay);
     } else if (StringEqualsNoCase(key, "Language")) {
@@ -526,4 +537,17 @@ void ParseConfigFile(const char *filename) {
       fprintf(stderr, "Warning: Unable to read config file %s\n", filename);
   }
   RegisterDefaultKeys();
+}
+
+void GamepadMap_GetControls(uint8 *out) {
+  for (int i = 0; i < kGamepadBtn_Count; i++)
+    out[i] = (joymap_first[i] != 0) ? (uint8)(joymap_ents[joymap_first[i] - 1].cmd) : 0xff;
+}
+
+void GamepadMap_SetControls(const uint8 *in) {
+  for (int i = 0; i < kGamepadBtn_Count; i++) {
+    if (in[i] != 0xff && in[i] < kKeys_Total) {
+      GamepadMap_Add(i, 0, in[i]);
+    }
+  }
 }

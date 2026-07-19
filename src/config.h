@@ -59,21 +59,25 @@ typedef struct Config {
   uint8 audio_channels;
   uint16 audio_samples;
   bool autosave;
+  uint8 save_slot;
   uint8 extended_aspect_ratio;
   bool extend_y;
   bool no_sprite_limits;
   bool display_perf_title;
+  bool run_without_emu;
   uint8 enable_msu;
   bool resume_msu;
   bool disable_frame_delay;
   uint8 msuvolume;
   uint32 features0;
+  bool dual_screen;
 
   const char *link_graphics;
   char *memory_buffer;
   const char *shader;
   const char *msu_path;
   const char *language;
+  const char *rom_path;
 } Config;
 
 enum {
@@ -108,3 +112,5 @@ extern Config g_config;
 void ParseConfigFile(const char *filename);
 int FindCmdForSdlKey(SDL_Keycode code, SDL_Keymod mod);
 int FindCmdForGamepadButton(int button, uint32 modifiers);
+void GamepadMap_GetControls(uint8 *out);
+void GamepadMap_SetControls(const uint8 *in);

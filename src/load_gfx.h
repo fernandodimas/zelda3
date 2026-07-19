@@ -60,6 +60,7 @@ void LoadCommonSprites();
 int Decomp_spr(uint8 *dst, int gfx);
 int Decomp_bg(uint8 *dst, int gfx);
 int Decompress(uint8 *dst, const uint8 *src);
+const uint8 *GetSpriteTilesetPacks(int index);
 void ResetHUDPalettes4and5();
 void PaletteFilterHistory();
 void PaletteFilter_WishPonds();

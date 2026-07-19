@@ -26,6 +26,7 @@
 #include "load_gfx.h"
 #include "util.h"
 #include "audio.h"
+#include "second_screen_sdl.h"
 
 static bool g_run_without_emu = 0;
 
@@ -41,7 +42,7 @@ static void HandleGamepadAxisInput(int gamepad_id, int axis, int value);
 static void OpenOneGamepad(int i);
 static void HandleVolumeAdjustment(int volume_adjustment);
 static void LoadAssets();
-static void SwitchDirectory();
+static void SwitchDirectory(const char *argv0);
 
 enum {
   kDefaultFullscreen = 0,
@@ -256,15 +257,34 @@ static void SdlRenderer_BeginDraw(int width, int height, uint8 **pixels, int *pi
 }
 
 static void SdlRenderer_EndDraw() {
-
-//  uint64 before = SDL_GetPerformanceCounter();
   SDL_UnlockTexture(g_texture);
-//  uint64 after = SDL_GetPerformanceCounter();
-//  float v = (double)(after - before) / SDL_GetPerformanceFrequency();
-//  printf("%f ms\n", v * 1000);
   SDL_RenderClear(g_renderer);
+
+#ifdef __SWITCH__
+  if (g_config.dual_screen && SecondScreenSDL_IsActive()) {
+    int ww, wh;
+    SDL_GetWindowSize(g_window, &ww, &wh);
+    int half_h = wh / 2;
+    // Top half: game (use game's logical size for correct aspect ratio)
+    SDL_RenderSetLogicalSize(g_renderer, g_snes_width, g_snes_height);
+    SDL_Rect top = { 0, 0, ww, half_h };
+    SDL_RenderSetViewport(g_renderer, &top);
+    SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
+    // Bottom half: second screen (use second screen's logical size)
+    SDL_RenderSetLogicalSize(g_renderer, 640, 360);
+    SDL_Rect reset_vp = { 0, 0, ww, wh };
+    SDL_RenderSetViewport(g_renderer, &reset_vp);
+    SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
+    // Restore game logical size for next frame
+    SDL_RenderSetLogicalSize(g_renderer, g_snes_width, g_snes_height);
+  } else {
+    SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
+  }
+#else
   SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
-  SDL_RenderPresent(g_renderer); // vsyncs to 60 FPS?
+#endif
+
+  SDL_RenderPresent(g_renderer);
 }
 
 static const struct RendererFuncs kSdlRendererFuncs  = {
@@ -278,15 +298,17 @@ void OpenGLRenderer_Create(struct RendererFuncs *funcs, bool use_opengl_es);
 
 #undef main
 int main(int argc, char** argv) {
+  const char *exe_path = argv[0];
   argc--, argv++;
   const char *config_file = NULL;
   if (argc >= 2 && strcmp(argv[0], "--config") == 0) {
     config_file = argv[1];
     argc -= 2, argv += 2;
   } else {
-    SwitchDirectory();
+    SwitchDirectory(exe_path);
   }
   ParseConfigFile(config_file);
+  g_run_without_emu = g_config.run_without_emu;
   LoadAssets();
   LoadLinkGraphics();
 
@@ -355,6 +377,16 @@ int main(int argc, char** argv) {
   if (!g_renderer_funcs.Initialize(window))
     return 1;
 
+  // Initialize second screen if DualScreen is enabled
+  if (g_config.dual_screen) {
+#ifdef __SWITCH__
+    SecondScreenSDL_SetRenderer(g_renderer);
+#endif
+    if (!SecondScreenSDL_Init(window)) {
+      fprintf(stderr, "Warning: Failed to initialize second screen\n");
+    }
+  }
+
   SDL_AudioDeviceID device = 0;
   SDL_AudioSpec want = { 0 }, have;
   g_audio_mutex = SDL_CreateMutex();
@@ -376,8 +408,12 @@ int main(int argc, char** argv) {
     g_audiobuffer = malloc(g_frames_per_block * have.channels * sizeof(int16));
   }
 
-  if (argc >= 1 && !g_run_without_emu)
-    LoadRom(argv[0]);
+  if (!g_run_without_emu) {
+    const char *rom_path = argc >= 1 ? argv[0] : g_config.rom_path;
+    if (rom_path == NULL)
+      rom_path = "zelda3.sfc";
+    LoadRom(rom_path);
+  }
 
 #if defined(_WIN32)
   _mkdir("saves");
@@ -398,7 +434,7 @@ int main(int argc, char** argv) {
   bool audiopaused = true;
 
   if (g_config.autosave)
-    HandleCommand(kKeys_Load + 0, true);
+    HandleCommand(kKeys_Load + g_config.save_slot, true);
 
   while(running) {
     while(SDL_PollEvent(&event)) {
@@ -438,6 +474,10 @@ int main(int argc, char** argv) {
         running = false;
         break;
       }
+
+      // Let second screen handle events (if it consumed the event, skip further processing)
+      if (SecondScreenSDL_HandleEvent(&event))
+        continue;
     }
 
     if (g_paused != audiopaused) {
@@ -469,6 +509,11 @@ int main(int argc, char** argv) {
 
     DrawPpuFrameWithPerf();
 
+    // Render second screen if active (desktop only; Switch renders inside SdlRenderer_EndDraw)
+#ifndef __SWITCH__
+    SecondScreenSDL_Render();
+#endif
+
     if (g_config.display_perf_title) {
       char title[60];
       snprintf(title, sizeof(title), "%s | FPS: %d", kWindowTitle, g_curr_fps);
@@ -496,7 +541,7 @@ int main(int argc, char** argv) {
     }
   }
   if (g_config.autosave)
-    HandleCommand(kKeys_Save + 0, true);
+    HandleCommand(kKeys_Save + g_config.save_slot, true);
 
   // clean sdl
   if (g_config.enable_audio) {
@@ -508,6 +553,9 @@ int main(int argc, char** argv) {
   free(g_audiobuffer);
 
   g_renderer_funcs.Destroy();
+
+  // Cleanup second screen
+  SecondScreenSDL_Destroy();
 
   SDL_DestroyWindow(window);
   SDL_Quit();
@@ -807,28 +855,20 @@ static void LoadLinkGraphics() {
 
 const uint8 *g_asset_ptrs[kNumberOfAssets];
 uint32 g_asset_sizes[kNumberOfAssets];
+uint8 *g_asset_data = NULL;
+uint8 *g_langpack_data = NULL;
 
-static void LoadAssets() {
+static void LoadAssetFile(const char *filename, uint8 **out_data) {
   size_t length = 0;
-  uint8 *data = ReadWholeFile("zelda3_assets.dat", &length);
-  if (!data) {
-    size_t bps_length, bps_src_length;
-    uint8 *bps, *bps_src;
-    bps = ReadWholeFile("zelda3_assets.bps", &bps_length);
-    if (!bps)
-      Die("Failed to read zelda3_assets.dat. Please see the README for information about how you get this file.");
-    bps_src = ReadWholeFile("zelda3.sfc", &bps_src_length);
-    if (!bps_src)
-      Die("Missing file: zelda3.sfc");
-    data = ApplyBps(bps_src, bps_src_length, bps, bps_length, &length);
-    if (!data)
-      Die("Unable to apply zelda3_assets.bps. Please make sure you got the right version of 'zelda3.sfc'");
-  }
+  uint8 *data = ReadWholeFile(filename, &length);
+  if (!data)
+    Die("Failed to read assets file");
 
   static const char kAssetsSig[] = { kAssets_Sig };
+  static const char kLangpackSig[] = "Zelda3_LP_v0  \n";
 
   if (length < 16 + 32 + 32 + 8 + kNumberOfAssets * 4 ||
-      memcmp(data, kAssetsSig, 48) != 0 ||
+      (memcmp(data, kAssetsSig, 48) != 0 && memcmp(data, kLangpackSig, 14) != 0) ||
       *(uint32*)(data + 80) != kNumberOfAssets)
     Die("Invalid assets file");
 
@@ -843,6 +883,46 @@ static void LoadAssets() {
     g_asset_ptrs[i] = data + offset;
     offset += size;
   }
+  *out_data = data;
+}
+
+static void OverlayLangpack(const uint8 *langpack_data, size_t langpack_size) {
+  static const char kAssetsSig[] = { kAssets_Sig };
+  static const char kLangpackSig[] = "Zelda3_LP_v0  \n";
+
+  if (langpack_size < 88 ||
+      (memcmp(langpack_data, kAssetsSig, 48) != 0 && memcmp(langpack_data, kLangpackSig, 14) != 0) ||
+      *(uint32*)(langpack_data + 80) != kNumberOfAssets)
+    return;
+
+  uint32 offset = 88 + kNumberOfAssets * 4 + *(uint32 *)(langpack_data + 84);
+
+  for (size_t i = 0; i < kNumberOfAssets; i++) {
+    uint32 size = *(uint32 *)(langpack_data + 88 + i * 4);
+    offset = (offset + 3) & ~3;
+    if (size > 0 && offset + size <= langpack_size) {
+      g_asset_sizes[i] = size;
+      g_asset_ptrs[i] = langpack_data + offset;
+    }
+    offset += size;
+  }
+}
+
+static void LoadAssets() {
+  // Load base assets
+  LoadAssetFile("zelda3_assets.dat", &g_asset_data);
+
+  // Load language pack if configured
+  if (g_config.language && strcmp(g_config.language, "us") != 0) {
+    char langpack_name[64];
+    snprintf(langpack_name, sizeof(langpack_name), "zelda3_langpack_%s.dat", g_config.language);
+    size_t langpack_size = 0;
+    g_langpack_data = ReadWholeFile(langpack_name, &langpack_size);
+    if (g_langpack_data) {
+      OverlayLangpack(g_langpack_data, langpack_size);
+      printf("Loaded language pack: %s\n", langpack_name);
+    }
+  }
 
   if (g_config.features0 & kFeatures0_DimFlashes) { // patch dungeon floor palettes
     kPalette_DungBgMain[0x484] = 0x70;
@@ -851,8 +931,20 @@ static void LoadAssets() {
   }
 }
 
-// Go some steps up and find zelda3.ini
-static void SwitchDirectory() {
+// Prefer the directory of the executable, then fall back to searching upward for zelda3.ini.
+static void SwitchDirectory(const char *argv0) {
+#ifndef _WIN32
+  char exe_path[4096];
+  if (realpath(argv0, exe_path) != NULL) {
+    char *slash = strrchr(exe_path, '/');
+    if (slash != NULL) {
+      *slash = 0;
+      if (chdir(exe_path) == 0)
+        return;
+    }
+  }
+#endif
+
   char buf[4096];
   if (!getcwd(buf, sizeof(buf) - 32))
     return;

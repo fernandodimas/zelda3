@@ -2933,3 +2933,9 @@ void DisplaySelectMenu() {
   saved_module_for_menu = main_module_index;
   main_module_index = 14;
 }
+
+const uint16 *GetDungmapRoomShape(int idx) {
+  if (idx < 0 || idx >= 186)
+    return NULL;
+  return &kDungMap_Tab23[idx * 4];
+}
