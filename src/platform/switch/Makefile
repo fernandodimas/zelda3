@@ -45,6 +45,8 @@ LIBS        := $(PORTLIBS)/lib/libSDL2.a -lEGL -lglapi -ldrm_nouveau -lstdc++ -l
 
 all: $(TOPDIR)/$(TARGET).nro
 
+# Put NRO alongside data files so everything is in one folder on the SD card.
+# Copy zelda3.nro + zelda3_assets.dat + zelda3.ini + zelda3.sfc to /switch/zelda3/
 $(TOPDIR)/$(TARGET).nro: $(TOPDIR)/$(TARGET).elf $(TOPDIR)/$(TARGET).nacp
 	@$(elf2nro) $< $@ --icon=$(PROJECT_DIR)/icon.png --nacp=$(TOPDIR)/$(TARGET).nacp
 	@echo built ... $(notdir $@)

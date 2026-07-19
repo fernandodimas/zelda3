@@ -227,8 +227,10 @@ static bool SdlRenderer_Init(SDL_Window *window) {
     printf("\n");
   }
   g_renderer = renderer;
+#ifndef __SWITCH__
   if (!g_config.ignore_aspect_ratio)
     SDL_RenderSetLogicalSize(renderer, g_snes_width, g_snes_height);
+#endif
   if (g_config.linear_filtering)
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
@@ -264,19 +266,50 @@ static void SdlRenderer_EndDraw() {
   if (g_config.dual_screen && SecondScreenSDL_IsActive()) {
     int ww, wh;
     SDL_GetWindowSize(g_window, &ww, &wh);
-    int half_h = wh / 2;
-    // Top half: game (use game's logical size for correct aspect ratio)
-    SDL_RenderSetLogicalSize(g_renderer, g_snes_width, g_snes_height);
-    SDL_Rect top = { 0, 0, ww, half_h };
-    SDL_RenderSetViewport(g_renderer, &top);
-    SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
-    // Bottom half: second screen (use second screen's logical size)
-    SDL_RenderSetLogicalSize(g_renderer, 640, 360);
-    SDL_Rect reset_vp = { 0, 0, ww, wh };
-    SDL_RenderSetViewport(g_renderer, &reset_vp);
-    SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
-    // Restore game logical size for next frame
-    SDL_RenderSetLogicalSize(g_renderer, g_snes_width, g_snes_height);
+    int layout = SecondScreenSDL_GetLayoutMode();
+
+    if (layout == SS_LAYOUT_1SCREEN) {
+      // Full screen: game only
+      SDL_Rect full = { 0, 0, ww, wh };
+      SDL_RenderSetViewport(g_renderer, &full);
+      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      int draw_w, draw_h;
+      if (tex_w * wh > tex_h * ww) { draw_w = ww; draw_h = tex_h * ww / tex_w; }
+      else { draw_h = wh; draw_w = tex_w * wh / tex_h; }
+      SDL_Rect dst = { (ww - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
+      SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
+    } else if (layout == SS_LAYOUT_HORIZONTAL) {
+      // Left half: game
+      int half_w = ww / 2;
+      SDL_Rect left = { 0, 0, half_w, wh };
+      SDL_RenderSetViewport(g_renderer, &left);
+      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      int draw_w, draw_h;
+      if (tex_w * wh > tex_h * half_w) { draw_w = half_w; draw_h = tex_h * half_w / tex_w; }
+      else { draw_h = wh; draw_w = tex_w * wh / tex_h; }
+      SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
+      SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
+
+      // Right half: second screen
+      SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
+    } else {
+      // Vertical: top half game, bottom half second screen
+      int half_h = wh / 2;
+      SDL_Rect top = { 0, 0, ww, half_h };
+      SDL_RenderSetViewport(g_renderer, &top);
+      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      int draw_w, draw_h;
+      if (tex_w * half_h > tex_h * ww) { draw_w = ww; draw_h = tex_h * ww / tex_w; }
+      else { draw_h = half_h; draw_w = tex_w * half_h / tex_h; }
+      SDL_Rect dst = { (ww - draw_w) / 2, (half_h - draw_h) / 2, draw_w, draw_h };
+      SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
+
+      SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
+    }
+
+    // Reset viewport
+    SDL_Rect full = { 0, 0, ww, wh };
+    SDL_RenderSetViewport(g_renderer, &full);
   } else {
     SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
   }
@@ -733,6 +766,12 @@ static int RemapSdlButton(int button) {
 }
 
 static void HandleGamepadInput(int button, bool pressed) {
+#ifdef __SWITCH__
+  if (button == kGamepadBtn_R3 && pressed && g_config.dual_screen) {
+    SecondScreenSDL_CycleLayoutMode();
+    return;
+  }
+#endif
   if (!!(g_gamepad_modifiers & (1 << button)) == pressed)
     return;
   g_gamepad_modifiers ^= 1 << button;

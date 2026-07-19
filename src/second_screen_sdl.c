@@ -16,6 +16,7 @@
 #include "features.h"
 #include "config.h"
 #include "second_screen.h"
+#include "second_screen_sdl.h"
 #include "second_screen_tables.h"
 #include "platform/linux/ss_sheets.h"
 #include "platform/linux/ss_textures.h"
@@ -114,6 +115,17 @@ static uint8 sram[256];
 static uint8 dung_flags[0x500];
 
 static bool ss_needs_rebuild;
+
+static int g_ss_layout_mode = SS_LAYOUT_VERTICAL;
+
+int SecondScreenSDL_GetLayoutMode(void) { return g_ss_layout_mode; }
+
+void SecondScreenSDL_CycleLayoutMode(void) {
+  g_ss_layout_mode = (g_ss_layout_mode + 1) % 3;
+  fprintf(stderr, "Layout mode: %s\n",
+    g_ss_layout_mode == SS_LAYOUT_1SCREEN ? "1 screen" :
+    g_ss_layout_mode == SS_LAYOUT_HORIZONTAL ? "horizontal" : "vertical");
+}
 
 static RectFS map_area_r, tab_items_r, tab_gear_r, tab_map_r, tab_settings_r, y_ring_r;
 static RectFS settings_row_r[3], remap_row_r[12], remap_back_r;
@@ -904,17 +916,31 @@ void SecondScreenSDL_Destroy(void) {
 
 void SecondScreenSDL_RenderToMain(SDL_Renderer *mr, int window_w, int window_h) {
   if (!ss_enabled) return;
-
-  int half_h = window_h / 2;
+  if (g_ss_layout_mode == SS_LAYOUT_1SCREEN) return;
 
   if (!main_renderer) main_renderer = mr;
 
-  // Logical size is already set to 640x360 by SdlRenderer_EndDraw.
-  // Set viewport to the bottom half.
-  SDL_Rect bottom = {0, half_h, window_w, window_h - half_h};
-  SDL_SetRenderDrawColor(mr, 0, 0, 0, 255);
-  SDL_RenderFillRect(mr, &bottom);
-  SDL_RenderSetViewport(mr, &bottom);
+  int area_w, area_x, area_y;
+  if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
+    area_x = window_w / 2;
+    area_y = 0;
+    area_w = window_w - area_x;
+    int area_h = window_h;
+    SDL_Rect right = {area_x, area_y, area_w, area_h};
+    SDL_SetRenderDrawColor(mr, 0, 0, 0, 255);
+    SDL_RenderFillRect(mr, &right);
+    SDL_RenderSetViewport(mr, &right);
+  } else {
+    int half_h = window_h / 2;
+    area_x = 0;
+    area_y = half_h;
+    area_w = window_w;
+    int area_h = window_h - half_h;
+    SDL_Rect bottom = {area_x, area_y, area_w, area_h};
+    SDL_SetRenderDrawColor(mr, 0, 0, 0, 255);
+    SDL_RenderFillRect(mr, &bottom);
+    SDL_RenderSetViewport(mr, &bottom);
+  }
 
   W = 640;
   H = 360;
@@ -1116,17 +1142,24 @@ static void handle_tap(float x, float y) {
 bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
 #ifdef __SWITCH__
   if (!ss_enabled) return false;
-  int wh = 0;
-  if (main_renderer) SDL_GetRendererOutputSize(main_renderer, NULL, &wh);
+  int ww = 0, wh = 0;
+  if (main_renderer) SDL_GetRendererOutputSize(main_renderer, &ww, &wh);
   switch (event->type) {
   case SDL_FINGERDOWN: {
+    int tx = (int)(event->tfinger.x * ww);
     int ty = (int)(event->tfinger.y * wh);
-    if (ty >= wh / 2) {
-      W = wh * 2 / 3;
-      H = wh / 2;
+    bool in_second_screen = false;
+    float tap_x = 0, tap_y = 0;
+    if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
+      if (tx >= ww / 2) { in_second_screen = true; tap_x = event->tfinger.x * ww - ww / 2; tap_y = event->tfinger.y * wh; }
+    } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
+      if (ty >= wh / 2) { in_second_screen = true; tap_x = event->tfinger.x * ww; tap_y = event->tfinger.y * wh - wh / 2; }
+    }
+    if (in_second_screen) {
+      W = 640; H = 360;
       u = (W < H ? W : H) / 720.0f;
       if (u < 0.01f) u = 1.0f;
-      handle_tap(event->tfinger.x * W, (event->tfinger.y * wh - wh / 2));
+      handle_tap(tap_x, tap_y);
       return true;
     }
     return false;
