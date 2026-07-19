@@ -818,11 +818,11 @@ static void HandleGamepadInput(int button, bool pressed) {
   // When L3 is held: L3+Y = save, L3+X = load, D-pad/L/R = navigate slots
   if (g_l3_held) {
     if (pressed) {
-      if (button == kGamepadBtn_Y) {
+      if (button == kGamepadBtn_X) {
         HandleCommand(kKeys_Save + g_config.save_slot, true);
         g_slot_menu_flash = 30;
         return;
-      } else if (button == kGamepadBtn_X) {
+      } else if (button == kGamepadBtn_Y) {
         HandleCommand(kKeys_Load + g_config.save_slot, true);
         g_slot_menu_flash = 30;
         return;
