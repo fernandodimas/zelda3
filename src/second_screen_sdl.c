@@ -1243,14 +1243,22 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
         tap_y = event->tfinger.y * wh * 360.0f / wh;
       }
     } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
-      // Right half: second screen fills completely, rotated 270° CW
+      // Right half: second screen 3:4 centered, rotated 270° CW
       if (tx >= half_w) {
-        in_second_screen = true;
-        float fx = event->tfinger.x * ww - half_w;
-        float fy = event->tfinger.y * wh;
         int right_w = ww - half_w;
-        tap_x = fy * 640.0f / wh;
-        tap_y = (right_w - fx) * 480.0f / right_w;
+        int rot_w = 480, rot_h = 640;
+        int ss_draw_w, ss_draw_h;
+        if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
+        else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
+        int ss_x = half_w + (right_w - ss_draw_w) / 2;
+        int ss_y = (wh - ss_draw_h) / 2;
+        float fx = event->tfinger.x * ww - ss_x;
+        float fy = event->tfinger.y * wh - ss_y;
+        if (fx >= 0 && fx < ss_draw_w && fy >= 0 && fy < ss_draw_h) {
+          in_second_screen = true;
+          tap_x = fy * 640.0f / ss_draw_h;
+          tap_y = (ss_draw_w - fx) * 480.0f / ss_draw_w;
+        }
       }
     }
     if (in_second_screen) {
