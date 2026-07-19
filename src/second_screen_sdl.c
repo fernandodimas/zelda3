@@ -1014,14 +1014,14 @@ void SecondScreenSDL_RenderToTexture(SDL_Renderer *mr, SDL_Texture *target) {
   SDL_Texture *prev_target = SDL_GetRenderTarget(mr);
   SDL_SetRenderTarget(mr, target);
 
-  // Clear and render at 640x360
+  // Clear and render at 640x480 (4:3)
   SDL_SetRenderDrawColor(mr, 0, 0, 0, 255);
   SDL_RenderClear(mr);
-  SDL_Rect full = {0, 0, 640, 360};
+  SDL_Rect full = {0, 0, 640, 480};
   SDL_RenderSetViewport(mr, &full);
 
   W = 640;
-  H = 360;
+  H = 480;
   u = (W < H ? W : H) / 720.0f;
   if (u < 0.01f) u = 1.0f;
 
@@ -1235,17 +1235,18 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
     int half_w = ww / 2;
 
     if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
-      // Right half: second screen fills completely
-      if (tx >= half_w) {
+      // Right 30%: second screen fills completely
+      int game_w = ww * 70 / 100;
+      if (tx >= game_w) {
         in_second_screen = true;
-        tap_x = (event->tfinger.x * ww - half_w) * 640.0f / (ww - half_w);
+        tap_x = (event->tfinger.x * ww - game_w) * 640.0f / (ww - game_w);
         tap_y = event->tfinger.y * wh * 360.0f / wh;
       }
     } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
       // Right half: second screen 3:4 centered, rotated 270° CW
       if (tx >= half_w) {
         int right_w = ww - half_w;
-        int rot_w = 360, rot_h = 640;
+        int rot_w = 480, rot_h = 640;  // 640×480 rotated → 480×640
         int ss_draw_w, ss_draw_h;
         if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
         else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
@@ -1256,12 +1257,12 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
         if (fx >= 0 && fx < ss_draw_w && fy >= 0 && fy < ss_draw_h) {
           in_second_screen = true;
           tap_x = fy * 640.0f / ss_draw_h;
-          tap_y = (ss_draw_w - fx) * 360.0f / ss_draw_w;
+          tap_y = (ss_draw_w - fx) * 480.0f / ss_draw_w;
         }
       }
     }
     if (in_second_screen) {
-      W = 640; H = 360;
+      W = 640; H = (g_ss_layout_mode == SS_LAYOUT_VERTICAL) ? 480 : 360;
       u = (W < H ? W : H) / 720.0f;
       if (u < 0.01f) u = 1.0f;
       handle_tap(tap_x, tap_y);

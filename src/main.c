@@ -256,7 +256,7 @@ static bool SdlRenderer_Init(SDL_Window *window) {
   }
 #ifdef __SWITCH__
   g_ss_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
-                                   640, 360);
+                                   640, 480);
 #endif
   return true;
 }
@@ -328,21 +328,22 @@ static void SdlRenderer_EndDraw() {
       SDL_Rect dst = { (ww - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
       SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
     } else if (layout == SS_LAYOUT_HORIZONTAL) {
-      // Left half: game (aspect-ratio correct)
-      int half_w = ww / 2;
-      SDL_Rect left = { 0, 0, half_w, wh };
+      // Left 70%: game, Right 30%: second screen
+      int game_w = ww * 70 / 100;
+      int ss_w = ww - game_w;
+      SDL_Rect left = { 0, 0, game_w, wh };
       SDL_RenderSetViewport(g_renderer, &left);
       int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
       int draw_w, draw_h;
-      if (tex_w * wh > tex_h * half_w) { draw_w = half_w; draw_h = tex_h * half_w / tex_w; }
+      if (tex_w * wh > tex_h * game_w) { draw_w = game_w; draw_h = tex_h * game_w / tex_w; }
       else { draw_h = wh; draw_w = tex_w * wh / tex_h; }
-      SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
+      SDL_Rect dst = { (game_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
       SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, &dst);
 
-      // Right half: second screen fills completely (no aspect ratio preservation)
+      // Right 30%: second screen fills completely
       if (g_ss_texture) {
         SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
-        SDL_Rect right = { half_w, 0, ww - half_w, wh };
+        SDL_Rect right = { game_w, 0, ss_w, wh };
         SDL_Rect ss_src = {0, 0, 640, 360};
         SDL_RenderSetViewport(g_renderer, &right);
         SDL_RenderCopy(g_renderer, g_ss_texture, &ss_src, NULL);
@@ -369,12 +370,12 @@ static void SdlRenderer_EndDraw() {
       if (g_ss_texture) {
         SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
         int right_w = ww - half_w;
-        int rot_w = 360, rot_h = 640;  // 640×360 rotated → 360×640
+        int rot_w = 480, rot_h = 640;  // 640×480 rotated → 480×640 = 3:4
         int ss_draw_w, ss_draw_h;
         if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
         else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
         SDL_Rect ss_dst = { half_w + (right_w - ss_draw_w) / 2, (wh - ss_draw_h) / 2, ss_draw_w, ss_draw_h };
-        SDL_Rect ss_src = {0, 0, 640, 360};
+        SDL_Rect ss_src = {0, 0, 640, 480};
         SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &ss_dst,
                          270.0, NULL, SDL_FLIP_NONE);
       }
