@@ -17,4 +17,5 @@ void SecondScreenSDL_CycleLayoutMode(void);
 #ifdef __SWITCH__
 void SecondScreenSDL_SetRenderer(SDL_Renderer *renderer);
 void SecondScreenSDL_RenderToMain(SDL_Renderer *main_renderer, int window_w, int window_h);
+void SecondScreenSDL_RenderToTexture(SDL_Renderer *main_renderer, SDL_Texture *target);
 #endif

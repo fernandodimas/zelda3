@@ -34,6 +34,7 @@ static bool g_run_without_emu = 0;
 static bool LoadRom(const char *filename);
 static void LoadLinkGraphics();
 static void RenderNumber(uint8 *dst, size_t pitch, int n, bool big);
+static void RenderText(uint8 *dst, size_t pitch, const char *text, uint32 color);
 static void HandleInput(int keyCode, int modCode, bool pressed);
 static void HandleCommand(uint32 j, bool pressed);
 static int RemapSdlButton(int button);
@@ -73,6 +74,10 @@ static uint16 g_gamepad_last_cmd[kGamepadBtn_Count];
 static bool g_l3_held;
 static bool g_slot_menu_open;
 static uint32 g_slot_menu_flash;
+
+// Save/load notification
+static char g_notify_text[32];
+static uint32 g_notify_until;
 
 void NORETURN Die(const char *error) {
 #if defined(NDEBUG) && defined(_WIN32)
@@ -210,6 +215,9 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
 static SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 static SDL_Rect g_sdl_renderer_rect;
+#ifdef __SWITCH__
+static SDL_Texture *g_ss_texture;  // offscreen target for rotated second screen
+#endif
 
 static bool SdlRenderer_Init(SDL_Window *window) {
 
@@ -246,11 +254,18 @@ static bool SdlRenderer_Init(SDL_Window *window) {
     printf("Failed to create texture: %s\n", SDL_GetError());
     return false;
   }
+#ifdef __SWITCH__
+  g_ss_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
+                                   640, 360);
+#endif
   return true;
 }
 
 static void SdlRenderer_Destroy() {
   SDL_DestroyTexture(g_texture);
+#ifdef __SWITCH__
+  if (g_ss_texture) { SDL_DestroyTexture(g_ss_texture); g_ss_texture = NULL; }
+#endif
   SDL_DestroyRenderer(g_renderer);
 }
 
@@ -267,20 +282,40 @@ static void SdlRenderer_EndDraw() {
   SDL_UnlockTexture(g_texture);
 
 #ifdef __SWITCH__
-  // Draw slot menu overlay into the game texture
-  if (g_slot_menu_open || g_slot_menu_flash > 0) {
+  // Draw slot menu overlay + notification text into the game texture
+  bool show_slot = g_slot_menu_open || g_slot_menu_flash > 0;
+  bool show_notify = g_notify_until > 0 && SDL_GetTicks() < g_notify_until;
+  if (show_slot || show_notify) {
     uint8 *px; int px_pitch;
     if (SDL_LockTexture(g_texture, &g_sdl_renderer_rect, (void **)&px, &px_pitch) == 0) {
       int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
-      // Dark overlay box at top-left
-      int bx = 4, by = 4, bw = 80, bh = 36;
-      for (int y = by; y < by + bh && y < tex_h; y++) {
-        uint32 *row = (uint32 *)(px + y * px_pitch);
-        for (int x = bx; x < bx + bw && x < tex_w; x++)
-          row[x] = 0xC0000000;
+      if (show_slot) {
+        // Dark overlay box at top-left
+        int bx = 4, by = 4, bw = 80, bh = 36;
+        for (int y = by; y < by + bh && y < tex_h; y++) {
+          uint32 *row = (uint32 *)(px + y * px_pitch);
+          for (int x = bx; x < bx + bw && x < tex_w; x++)
+            row[x] = 0xC0000000;
+        }
+        // Draw slot number
+        RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
       }
-      // Draw slot number (shadow + white)
-      RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
+      if (show_notify) {
+        // Notification text centered at bottom
+        int msg_len = 0;
+        for (const char *p = g_notify_text; *p; p++) msg_len++;
+        int text_w = msg_len * 6;
+        int nx = (tex_w - text_w) / 2;
+        int ny = tex_h - 24;
+        // Dark background
+        for (int y = ny - 2; y < ny + 9 && y < tex_h; y++) {
+          uint32 *row = (uint32 *)(px + y * px_pitch);
+          for (int x = nx - 4; x < nx + text_w + 4 && x < tex_w; x++)
+            row[x] = 0xC0000000;
+        }
+        RenderText(px + ny * px_pitch + nx * 4, px_pitch, g_notify_text, 0x00ff00);
+        if (SDL_GetTicks() >= g_notify_until) g_notify_text[0] = 0;
+      }
       SDL_UnlockTexture(g_texture);
     }
     if (g_slot_menu_flash > 0) g_slot_menu_flash--;
@@ -320,22 +355,37 @@ static void SdlRenderer_EndDraw() {
       // Right half: second screen
       SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
     } else {
-      // Vertical: top half game (rotated 90°), bottom half second screen
-      int half_h = wh / 2;
-      SDL_Rect top = { 0, 0, ww, half_h };
-      SDL_RenderSetViewport(g_renderer, &top);
+      // Vertical: left half game (90° CW), right half second screen (90° CW)
+      int half_w = ww / 2;
 
-      // Rotate game texture 90° CW: original tex_w×tex_h becomes tex_h×tex_w
+      // Left half: game rotated 90° CW
+      SDL_Rect left = { 0, 0, half_w, wh };
+      SDL_RenderSetViewport(g_renderer, &left);
       int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
-      int rot_w = tex_h, rot_h = tex_w;  // swapped after 90° rotation
+      int rot_w = tex_h, rot_h = tex_w;  // after 90° CW rotation
       int draw_w, draw_h;
-      if (rot_w * half_h > rot_h * ww) { draw_w = ww; draw_h = rot_h * ww / rot_w; }
-      else { draw_h = half_h; draw_w = rot_w * half_h / rot_h; }
-      SDL_Rect dst = { (ww - draw_w) / 2, (half_h - draw_h) / 2, draw_w, draw_h };
+      if (rot_w * wh > rot_h * half_w) { draw_w = half_w; draw_h = rot_h * half_w / rot_w; }
+      else { draw_h = wh; draw_w = rot_w * wh / rot_h; }
+      SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
       SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, &dst,
-                       90.0, NULL, SDL_FLIP_NONE);
+                       270.0, NULL, SDL_FLIP_NONE);
 
-      SecondScreenSDL_RenderToMain(g_renderer, ww, wh);
+      // Right half: second screen rendered to texture, then rotated 90° CW
+      if (g_ss_texture) {
+        SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
+        SDL_Rect right = { half_w, 0, ww - half_w, wh };
+        SDL_RenderSetViewport(g_renderer, &right);
+        int ss_w = 640, ss_h = 360;
+        int ss_rot_w = ss_h, ss_rot_h = ss_w;
+        int ss_draw_w, ss_draw_h;
+        int right_w = ww - half_w;
+        if (ss_rot_w * wh > ss_rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = ss_rot_h * right_w / ss_rot_w; }
+        else { ss_draw_h = wh; ss_draw_w = ss_rot_w * wh / ss_rot_h; }
+        SDL_Rect ss_dst = { (right_w - ss_draw_w) / 2, (wh - ss_draw_h) / 2, ss_draw_w, ss_draw_h };
+        SDL_Rect ss_src = {0, 0, ss_w, ss_h};
+        SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &ss_dst,
+                         270.0, NULL, SDL_FLIP_NONE);
+      }
     }
 
     // Reset viewport
@@ -672,6 +722,71 @@ static void RenderNumber(uint8 *dst, size_t pitch, int n, bool big) {
     RenderDigit(dst + (i << big), pitch, *s - '0', 0xffffff, big);
 }
 
+// Minimal 5x7 bitmap font for notifications (A-Z, 0-9, space, !)
+static const uint8 kSmallFont[43][5] = {
+  {0x7e,0x09,0x09,0x09,0x7e}, // A
+  {0x7f,0x49,0x49,0x49,0x36}, // B
+  {0x3e,0x41,0x41,0x41,0x22}, // C
+  {0x7f,0x41,0x41,0x41,0x3e}, // D
+  {0x7f,0x49,0x49,0x49,0x41}, // E
+  {0x7f,0x09,0x09,0x09,0x01}, // F
+  {0x3e,0x41,0x49,0x49,0x7a}, // G
+  {0x7f,0x08,0x08,0x08,0x7f}, // H
+  {0x00,0x41,0x7f,0x41,0x00}, // I
+  {0x20,0x40,0x41,0x3f,0x01}, // J
+  {0x7f,0x08,0x14,0x22,0x41}, // K
+  {0x7f,0x40,0x40,0x40,0x40}, // L
+  {0x7f,0x02,0x0c,0x02,0x7f}, // M
+  {0x7f,0x02,0x04,0x08,0x7f}, // N
+  {0x3e,0x41,0x41,0x41,0x3e}, // O
+  {0x7f,0x09,0x09,0x09,0x06}, // P
+  {0x3e,0x41,0x51,0x21,0x5e}, // Q
+  {0x7f,0x09,0x19,0x29,0x46}, // R
+  {0x46,0x49,0x49,0x49,0x31}, // S
+  {0x01,0x01,0x7f,0x01,0x01}, // T
+  {0x3f,0x40,0x40,0x40,0x3f}, // U
+  {0x1f,0x20,0x40,0x20,0x1f}, // V
+  {0x7f,0x20,0x18,0x20,0x7f}, // W
+  {0x63,0x14,0x08,0x14,0x63}, // X
+  {0x03,0x04,0x78,0x04,0x03}, // Y
+  {0x61,0x51,0x49,0x45,0x43}, // Z
+  {0x00,0x00,0x00,0x00,0x00}, // space
+  {0x00,0x34,0x00,0x00,0x00}, // !
+  {0x3e,0x41,0x41,0x41,0x3e}, // 0
+  {0x00,0x42,0x7f,0x40,0x00}, // 1
+  {0x42,0x61,0x51,0x49,0x46}, // 2
+  {0x21,0x41,0x45,0x4b,0x31}, // 3
+  {0x18,0x14,0x12,0x7f,0x10}, // 4
+  {0x27,0x45,0x45,0x45,0x39}, // 5
+  {0x3c,0x4a,0x49,0x49,0x30}, // 6
+  {0x01,0x71,0x09,0x05,0x03}, // 7
+  {0x36,0x49,0x49,0x49,0x36}, // 8
+  {0x06,0x49,0x49,0x29,0x1e}, // 9
+};
+static int kSmallFontIndex(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a';
+  if (c >= '0' && c <= '9') return c - '0' + 28;
+  if (c == ' ') return 27;
+  if (c == '!') return 27;  // reuse space for unknown
+  return 27;
+}
+static void RenderText(uint8 *dst, size_t pitch, const char *text, uint32 color) {
+  for (int i = 0; text[i]; i++) {
+    int idx = kSmallFontIndex(text[i]);
+    const uint8 *glyph = kSmallFont[idx];
+    for (int y = 0; y < 7; y++) {
+      uint32 *row = (uint32 *)(dst + y * pitch);
+      uint8 bits = glyph[y];
+      for (int x = 0; x < 5; x++) {
+        if (bits & (0x20 >> x))
+          row[x] = color;
+      }
+    }
+    dst += 6 * 4;  // advance 6 pixels (5 + 1 spacing)
+  }
+}
+
 static void HandleCommand_Locked(uint32 j, bool pressed);
 
 static void HandleCommand(uint32 j, bool pressed) {
@@ -820,10 +935,14 @@ static void HandleGamepadInput(int button, bool pressed) {
     if (pressed) {
       if (button == kGamepadBtn_X) {
         HandleCommand(kKeys_Save + g_config.save_slot, true);
+        snprintf(g_notify_text, sizeof(g_notify_text), "SALVO! SLOT %d", g_config.save_slot);
+        g_notify_until = SDL_GetTicks() + 2000;
         g_slot_menu_flash = 30;
         return;
       } else if (button == kGamepadBtn_Y) {
         HandleCommand(kKeys_Load + g_config.save_slot, true);
+        snprintf(g_notify_text, sizeof(g_notify_text), "CARREGADO! SLOT %d", g_config.save_slot);
+        g_notify_until = SDL_GetTicks() + 2000;
         g_slot_menu_flash = 30;
         return;
       } else if (button == kGamepadBtn_DpadUp || button == kGamepadBtn_L1) {

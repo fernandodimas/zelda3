@@ -1007,6 +1007,88 @@ void SecondScreenSDL_RenderToMain(SDL_Renderer *mr, int window_w, int window_h) 
   SDL_RenderSetViewport(mr, NULL);
 }
 
+void SecondScreenSDL_RenderToTexture(SDL_Renderer *mr, SDL_Texture *target) {
+  if (!ss_enabled || !target) return;
+  if (!main_renderer) main_renderer = mr;
+
+  SDL_Texture *prev_target = SDL_GetRenderTarget(mr);
+  SDL_SetRenderTarget(mr, target);
+
+  // Clear and render at 640x360
+  SDL_SetRenderDrawColor(mr, 0, 0, 0, 255);
+  SDL_RenderClear(mr);
+  SDL_Rect full = {0, 0, 640, 360};
+  SDL_RenderSetViewport(mr, &full);
+
+  W = 640;
+  H = 360;
+  u = (W < H ? W : H) / 720.0f;
+  if (u < 0.01f) u = 1.0f;
+
+  if (!art_ready) {
+    art_ready = try_load_art();
+    if (!art_ready) {
+      SDL_SetRenderTarget(mr, prev_target);
+      return;
+    }
+  }
+
+  uint8 sram[256], dung_flags[512];
+  int link_x = SS_GetLinkX(), link_y = SS_GetLinkY();
+  int area = SS_GetArea();
+  bool indoors = SS_IsIndoors();
+  int dungeon_info = SS_GetDungeon();
+  int module = SS_GetModule() & 0xFF;
+  SS_ReadSram(sram, sizeof(sram));
+  SS_ReadDungFlags(dung_flags, sizeof(dung_flags));
+  cur_room = area; cur_palace = dungeon_info & 0xFF; cur_floor_now = (int8_t)(dungeon_info >> 8);
+
+  bool dungeon_mode = indoors;
+  int ui_mode = mode_for_module(module);
+  if (module == 0x12 || module <= 0x05) has_last_outdoor = false;
+  bool in_house = ui_mode == MODE_GAME && indoors && (dungeon_info & 0xFF) == 0xFF;
+  int exit_pos[3];
+  bool have_exit = in_house && !has_last_outdoor && SS_GetIndoorExit(exit_pos);
+  if (in_house && !has_last_outdoor && !have_exit) ui_mode = MODE_CINEMA;
+  if (ui_mode != MODE_GAME) {
+    draw_cinema();
+    SDL_SetRenderTarget(mr, prev_target);
+    return;
+  }
+  if (!indoors && (module == 0x09 || module == 0x0B)) {
+    last_out_x = link_x; last_out_y = link_y; last_out_area = area;
+    has_last_outdoor = true;
+  } else if (in_house) {
+    dungeon_mode = false;
+    if (has_last_outdoor) {
+      link_x = last_out_x; link_y = last_out_y; area = last_out_area;
+    } else {
+      link_x = exit_pos[0]; link_y = exit_pos[1]; area = exit_pos[2];
+    }
+  }
+
+  draw_tiled(dungeon_mode ? tex_bg_stone : tex_bg_menu,
+             dungeon_mode ? kSSTexStone_W : kSSTexMenu_W,
+             dungeon_mode ? kSSTexStone_H : kSSTexMenu_H,
+             (RectFS){0, 0, W, H},
+             dungeon_mode ? COL_BG_STONE : COL_BG_MENU);
+  float tab_h = 84 * u;
+  float side_w = 200 * u;
+  map_area_r = (RectFS){10 * u, 10 * u, W - side_w - 14 * u, H - tab_h - 14 * u};
+
+  if (tab == TAB_ITEMS)      draw_items(map_area_r);
+  else if (tab == TAB_GEAR)  draw_gear(map_area_r);
+  else if (tab == TAB_SETTINGS) draw_settings(map_area_r);
+  else if (dungeon_mode)     draw_dungeon(map_area_r, link_x, link_y, area & 0xFF, dungeon_info);
+  else                       draw_overworld(map_area_r, link_x, link_y, area);
+
+  draw_sidebar(W - side_w + 4 * u, 10 * u, side_w - 14 * u, H - tab_h - 14 * u, dungeon_mode);
+  draw_tab_bar(tab_h);
+
+  SDL_SetRenderTarget(mr, prev_target);
+  SDL_RenderSetViewport(mr, NULL);
+}
+
 #else
 
 bool SecondScreenSDL_Init(SDL_Window *main_window) {
@@ -1153,7 +1235,15 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
     if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
       if (tx >= ww / 2) { in_second_screen = true; tap_x = event->tfinger.x * ww - ww / 2; tap_y = event->tfinger.y * wh; }
     } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
-      if (ty >= wh / 2) { in_second_screen = true; tap_x = event->tfinger.x * ww; tap_y = event->tfinger.y * wh - wh / 2; }
+      // Right half = second screen (rotated 90° CW), un-rotate touch coordinates
+      if (tx >= ww / 2) {
+        in_second_screen = true;
+        float rx = event->tfinger.x * ww - ww / 2;  // 0..640
+        float ry = event->tfinger.y * wh;             // 0..720
+        // Un-rotate 90° CW: map (rx,ry) in rotated space to (x,y) in original 640×360
+        tap_x = ry * 640.0f / (float)wh;
+        tap_y = 360.0f - rx * 360.0f / (float)(ww / 2);
+      }
     }
     if (in_second_screen) {
       W = 640; H = 360;
