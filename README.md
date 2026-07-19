@@ -115,6 +115,33 @@ make # Add -j$(nproc) to build using all cores ( Optional )
 nxlink -s zelda3.nro
 ```
 
+### Switch Controls
+
+| Button | Action |
+| ------ | ------ |
+| R3 (right stick click) | Cycle screen mode: 1 screen / horizontal / vertical |
+| L3 hold | Open save slot selector |
+| L3 + D-pad Up/Down or L/R | Navigate between save slots (0-9) |
+| L3 + Y | Save to selected slot |
+| L3 + X | Load from selected slot |
+| Minus (-) | Save (mapped to slot 0 by default) |
+| Plus (+) | Load (mapped to slot 0 by default) |
+| L1 + R1 | Pause |
+
+The slot selector shows the current slot number as an overlay on the game screen. The active slot is saved to `zelda3.ini` as `SaveSlot`.
+
+### Switch Files
+
+Copy all files to the same folder on the SD card (e.g. `/switch/zelda3/`):
+
+```
+zelda3.nro
+zelda3_assets.dat
+zelda3.ini
+zelda3.sfc
+zelda3_langpack_pt.dat   (optional, for Portuguese)
+```
+
 ## More Compilation Help
 
 Look at the wiki at https://github.com/snesrev/zelda3/wiki for more help.

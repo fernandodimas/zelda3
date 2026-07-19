@@ -69,6 +69,11 @@ static struct RendererFuncs g_renderer_funcs;
 static uint32 g_gamepad_modifiers;
 static uint16 g_gamepad_last_cmd[kGamepadBtn_Count];
 
+// L3 slot menu state
+static bool g_l3_held;
+static bool g_slot_menu_open;
+static uint32 g_slot_menu_flash;
+
 void NORETURN Die(const char *error) {
 #if defined(NDEBUG) && defined(_WIN32)
   SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kWindowTitle, error, NULL);
@@ -260,6 +265,28 @@ static void SdlRenderer_BeginDraw(int width, int height, uint8 **pixels, int *pi
 
 static void SdlRenderer_EndDraw() {
   SDL_UnlockTexture(g_texture);
+
+#ifdef __SWITCH__
+  // Draw slot menu overlay into the game texture
+  if (g_slot_menu_open || g_slot_menu_flash > 0) {
+    uint8 *px; int px_pitch;
+    if (SDL_LockTexture(g_texture, &g_sdl_renderer_rect, (void **)&px, &px_pitch) == 0) {
+      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
+      // Dark overlay box at top-left
+      int bx = 4, by = 4, bw = 80, bh = 36;
+      for (int y = by; y < by + bh && y < tex_h; y++) {
+        uint32 *row = (uint32 *)(px + y * px_pitch);
+        for (int x = bx; x < bx + bw && x < tex_w; x++)
+          row[x] = 0xC0000000;
+      }
+      // Draw slot number (shadow + white)
+      RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
+      SDL_UnlockTexture(g_texture);
+    }
+    if (g_slot_menu_flash > 0) g_slot_menu_flash--;
+  }
+#endif
+
   SDL_RenderClear(g_renderer);
 
 #ifdef __SWITCH__
@@ -771,9 +798,43 @@ static int RemapSdlButton(int button) {
 
 static void HandleGamepadInput(int button, bool pressed) {
 #ifdef __SWITCH__
+  // R3 cycles layout mode
   if (button == kGamepadBtn_R3 && pressed && g_config.dual_screen) {
     SecondScreenSDL_CycleLayoutMode();
     return;
+  }
+
+  // Track L3 held state for slot menu
+  if (button == kGamepadBtn_L3) {
+    g_l3_held = pressed;
+    if (!pressed) {
+      g_slot_menu_open = false;
+    } else {
+      g_slot_menu_open = true;
+    }
+    return;  // L3 alone doesn't process further
+  }
+
+  // When L3 is held: L3+Y = save, L3+X = load, D-pad/L/R = navigate slots
+  if (g_l3_held) {
+    if (pressed) {
+      if (button == kGamepadBtn_Y) {
+        HandleCommand(kKeys_Save + g_config.save_slot, true);
+        g_slot_menu_flash = 30;
+        return;
+      } else if (button == kGamepadBtn_X) {
+        HandleCommand(kKeys_Load + g_config.save_slot, true);
+        g_slot_menu_flash = 30;
+        return;
+      } else if (button == kGamepadBtn_DpadUp || button == kGamepadBtn_L1) {
+        g_config.save_slot = (g_config.save_slot + 9) % 10;
+        return;
+      } else if (button == kGamepadBtn_DpadDown || button == kGamepadBtn_R1) {
+        g_config.save_slot = (g_config.save_slot + 1) % 10;
+        return;
+      }
+    }
+    return;  // Block all other buttons while L3 held
   }
 #endif
   if (!!(g_gamepad_modifiers & (1 << button)) == pressed)
