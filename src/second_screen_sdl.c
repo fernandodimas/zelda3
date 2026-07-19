@@ -1232,17 +1232,42 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
     int ty = (int)(event->tfinger.y * wh);
     bool in_second_screen = false;
     float tap_x = 0, tap_y = 0;
+    int half_w = ww / 2;
+
     if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
-      if (tx >= ww / 2) { in_second_screen = true; tap_x = event->tfinger.x * ww - ww / 2; tap_y = event->tfinger.y * wh; }
+      // Right half, 4:3 area centered
+      if (tx >= half_w) {
+        int ss43_w = wh * 3 / 4;
+        int right_w = ww - half_w;
+        if (ss43_w > right_w) ss43_w = right_w;
+        int ss_x = half_w + (right_w - ss43_w) / 2;
+        int ss_y = (wh - wh) / 2;
+        float fx = event->tfinger.x * ww - ss_x;
+        float fy = event->tfinger.y * wh - ss_y;
+        if (fx >= 0 && fx < ss43_w && fy >= 0 && fy < wh) {
+          in_second_screen = true;
+          tap_x = fx * 640.0f / ss43_w;
+          tap_y = fy * 360.0f / wh;
+        }
+      }
     } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
-      // Right half = second screen (rotated 90° CW), un-rotate touch coordinates
-      if (tx >= ww / 2) {
-        in_second_screen = true;
-        float rx = event->tfinger.x * ww - ww / 2;  // 0..640
-        float ry = event->tfinger.y * wh;             // 0..720
-        // Un-rotate 90° CW: map (rx,ry) in rotated space to (x,y) in original 640×360
-        tap_x = ry * 640.0f / (float)wh;
-        tap_y = 360.0f - rx * 360.0f / (float)(ww / 2);
+      // Right half, rotated 270° CW, 3:4 area centered
+      if (tx >= half_w) {
+        int right_w = ww - half_w;
+        int ss_rot_w = 360, ss_rot_h = 640;
+        int ss_draw_w, ss_draw_h;
+        if (ss_rot_w * wh > ss_rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = ss_rot_h * right_w / ss_rot_w; }
+        else { ss_draw_h = wh; ss_draw_w = ss_rot_w * wh / ss_rot_h; }
+        int ss_x = half_w + (right_w - ss_draw_w) / 2;
+        int ss_y = (wh - ss_draw_h) / 2;
+        float fx = event->tfinger.x * ww - ss_x;
+        float fy = event->tfinger.y * wh - ss_y;
+        if (fx >= 0 && fx < ss_draw_w && fy >= 0 && fy < ss_draw_h) {
+          in_second_screen = true;
+          // Un-rotate 270° CW: map (fx,fy) in rotated space to (x,y) in original 640×360
+          tap_x = fy * 640.0f / ss_draw_h;
+          tap_y = (ss_draw_w - fx) * 360.0f / ss_draw_w;
+        }
       }
     }
     if (in_second_screen) {
