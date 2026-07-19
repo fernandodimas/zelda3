@@ -122,8 +122,8 @@ nxlink -s zelda3.nro
 | R3 (right stick click) | Cycle screen mode: 1 screen / horizontal / vertical |
 | L3 hold | Open save slot selector |
 | L3 + D-pad Up/Down or L/R | Navigate between save slots (0-9) |
-| L3 + Y | Save to selected slot |
-| L3 + X | Load from selected slot |
+| L3 + X | Save to selected slot |
+| L3 + Y | Load from selected slot |
 | Minus (-) | Save (mapped to slot 0 by default) |
 | Plus (+) | Load (mapped to slot 0 by default) |
 | L1 + R1 | Pause |
