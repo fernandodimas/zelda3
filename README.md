@@ -17,6 +17,22 @@ Reimplementação reversa do Zelda 3 - A Link to the Past, com aproximadamente 7
 
 É necessário possuir uma cópia do ROM para extrair os recursos do jogo (níveis, imagens). Uma vez extraído, o ROM não é mais necessário.
 
+### ROMs suportadas (SHA1)
+
+| Hash SHA1 | Idioma | Nome |
+|-----------|--------|------|
+| `6D4F10A8B10E10DBE624CB23CF03B88BB8252973` | US | Legend of Zelda, The - A Link to the Past (USA) |
+| `D0D09ED41F9C373FE6AFDCCAFBF0DA8C88D3D90D` | PT | Portuguese - https://www.romhacking.net/translations/6530/ |
+| `461FCBD700D1332009C0E85A7A136E2A8E4B111E` | ES | Spanish - https://www.romhacking.net/translations/2195/ |
+| `2E62494967FB0AFDF5DA1635607F9641DF7C6559` | DE | Legend of Zelda, The - A Link to the Past (Germany) |
+| `229364A1B92A05167CD38609B1AA98F7041987CC` | FR | Legend of Zelda, The - A Link to the Past (France) |
+| `7C073A222569B9B8E8CA5FCB5DFEC3B5E31DA895` | EN | Legend of Zelda, The - A Link to the Past (Europe) |
+| `3C4D605EEFDA1D76F101965138F238476655B11D` | PL | Polish - https://www.romhacking.net/translations/5760/ |
+| `B2A07A59E64C498BC1B2F28728F9BF4014C8D582` | Redux | English Redux - https://www.romhacking.net/translations/6657/ |
+| `9325C22EB0A2A1F0017157C8B620BC3A605CEDE1` | Redux | English Redux - https://www.romhacking.net/hacks/2594/ |
+| `FA8ADFDBA2697C9A54D583A1284A22AC764C7637` | NL | Dutch - https://www.romhacking.net/translations/1124/ |
+| `43CD3438469B2C3FE879EA2F410B3EF3CB3F1CA4` | SV | Swedish - https://www.romhacking.net/translations/982/ |
+
 Utiliza a implementação PPU e DSP do [LakeSnes](https://github.com/elzo-d/LakeSnes), com muitas otimizações de performance.
 
 ---
