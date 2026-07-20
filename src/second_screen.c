@@ -83,7 +83,7 @@ static bool g_ss_tiles_ready;
 static bool SS_AssetsReady(void) {
   return g_asset_ptrs[57] && g_asset_ptrs[65] && g_asset_ptrs[66] && g_asset_ptrs[67] &&
          g_asset_ptrs[68] && g_asset_ptrs[81] && g_asset_ptrs[90] && g_asset_ptrs[91] &&
-         g_asset_ptrs[92] && g_asset_ptrs[93] && g_asset_ptrs[97] && g_asset_ptrs[98];
+         g_asset_ptrs[92] && g_asset_ptrs[93];
 }
 
 static void SS_EnsureTiles(void) {

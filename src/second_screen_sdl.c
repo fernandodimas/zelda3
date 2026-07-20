@@ -320,11 +320,14 @@ static bool try_load_art(void) {
   if (!tex_bg_parch) tex_bg_parch = make_tex(kSSTexParch_W, kSSTexParch_H, kSSTexParch, false);
   if (!tex_bg_stone) tex_bg_stone = make_tex(kSSTexStone_W, kSSTexStone_H, kSSTexStone, false);
 
-  if (SS_GetDungeonLayout(0, lay, sizeof(lay)) < 0) return false;
-  if (!SS_RenderWorldMap(buf, false)) return false;
-  tex_map[0] = make_tex(512, 512, buf, false);
-  SS_RenderWorldMap(buf, true);
-  tex_map[1] = make_tex(512, 512, buf, false);
+  bool have_dungeon_data = SS_GetDungeonLayout(0, lay, sizeof(lay)) >= 0;
+
+  if (have_dungeon_data) {
+    if (!SS_RenderWorldMap(buf, false)) return false;
+    tex_map[0] = make_tex(512, 512, buf, false);
+    SS_RenderWorldMap(buf, true);
+    tex_map[1] = make_tex(512, 512, buf, false);
+  }
 
   SS_RenderIconSheet(buf);
   tex_icons = make_tex(SS_ICON_COLS * 16, ((kIconCount + kIconCols - 1) / kIconCols) * 16, buf, true);
@@ -340,17 +343,19 @@ static bool try_load_art(void) {
   tex_mapicons = SDL_CreateTexture(ss_r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 32, 8);
   SDL_SetTextureBlendMode(tex_mapicons, SDL_BLENDMODE_BLEND);
 
-  for (int i = 0; i < 14; i++) {
-    int r = SS_GetDungeonLayout(i, lay, sizeof(lay));
-    if (r < 0) return false;
-    Dungeon *d = &dungeons[i];
-    d->name = kDungeonNames[i];
-    d->boss = kDungeonBoss[i];
-    d->floors = r & 0xFF;
-    if (d->floors > 16) d->floors = 16;
-    d->basements = (r >> 8) & 0xFF;
-    for (int f = 0; f < d->floors; f++)
-      memcpy(d->layout[f], lay + f * 25, 25);
+  if (have_dungeon_data) {
+    for (int i = 0; i < 14; i++) {
+      int r = SS_GetDungeonLayout(i, lay, sizeof(lay));
+      if (r < 0) continue;
+      Dungeon *d = &dungeons[i];
+      d->name = kDungeonNames[i];
+      d->boss = kDungeonBoss[i];
+      d->floors = r & 0xFF;
+      if (d->floors > 16) d->floors = 16;
+      d->basements = (r >> 8) & 0xFF;
+      for (int f = 0; f < d->floors; f++)
+        memcpy(d->layout[f], lay + f * 25, 25);
+    }
   }
   return true;
 }
@@ -952,14 +957,13 @@ void SecondScreenSDL_RenderToMain(SDL_Renderer *mr, int window_w, int window_h) 
     if (!art_ready) return;
   }
 
-  uint8 sram[256], dung_flags[512];
+  SS_ReadSram(sram, sizeof(sram));
+  SS_ReadDungFlags(dung_flags, sizeof(dung_flags));
   int link_x = SS_GetLinkX(), link_y = SS_GetLinkY();
   int area = SS_GetArea();
   bool indoors = SS_IsIndoors();
   int dungeon_info = SS_GetDungeon();
   int module = SS_GetModule() & 0xFF;
-  SS_ReadSram(sram, sizeof(sram));
-  SS_ReadDungFlags(dung_flags, sizeof(dung_flags));
   cur_room = area; cur_palace = dungeon_info & 0xFF; cur_floor_now = (int8_t)(dungeon_info >> 8);
 
   bool dungeon_mode = indoors;
@@ -1033,14 +1037,13 @@ void SecondScreenSDL_RenderToTexture(SDL_Renderer *mr, SDL_Texture *target) {
     }
   }
 
-  uint8 sram[256], dung_flags[512];
+  SS_ReadSram(sram, sizeof(sram));
+  SS_ReadDungFlags(dung_flags, sizeof(dung_flags));
   int link_x = SS_GetLinkX(), link_y = SS_GetLinkY();
   int area = SS_GetArea();
   bool indoors = SS_IsIndoors();
   int dungeon_info = SS_GetDungeon();
   int module = SS_GetModule() & 0xFF;
-  SS_ReadSram(sram, sizeof(sram));
-  SS_ReadDungFlags(dung_flags, sizeof(dung_flags));
   cur_room = area; cur_palace = dungeon_info & 0xFF; cur_floor_now = (int8_t)(dungeon_info >> 8);
 
   bool dungeon_mode = indoors;
@@ -1232,37 +1235,54 @@ bool SecondScreenSDL_HandleEvent(SDL_Event *event) {
     int ty = (int)(event->tfinger.y * wh);
     bool in_second_screen = false;
     float tap_x = 0, tap_y = 0;
-    int half_w = ww / 2;
 
     if (g_ss_layout_mode == SS_LAYOUT_HORIZONTAL) {
-      // Right 30%: second screen fills completely
+      // Right 30%: second screen 4:3 centered
       int game_w = ww * 70 / 100;
+      int right_w = ww - game_w;
       if (tx >= game_w) {
-        in_second_screen = true;
-        tap_x = (event->tfinger.x * ww - game_w) * 640.0f / (ww - game_w);
-        tap_y = event->tfinger.y * wh * 360.0f / wh;
-      }
-    } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
-      // Right half: second screen 3:4 centered, rotated 270° CW
-      if (tx >= half_w) {
-        int right_w = ww - half_w;
-        int rot_w = 480, rot_h = 640;
-        int ss_draw_w, ss_draw_h;
-        if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
-        else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
-        int ss_x = half_w + (right_w - ss_draw_w) / 2;
-        int ss_y = (wh - ss_draw_h) / 2;
+        // Calculate where the 4:3 area is centered in the right half
+        int ss43_w, ss43_h;
+        if (640 * wh > 480 * right_w) { ss43_w = right_w; ss43_h = 480 * right_w / 640; }
+        else { ss43_h = wh; ss43_w = 640 * wh / 480; }
+        int ss_x = game_w + (right_w - ss43_w) / 2;
+        int ss_y = (wh - ss43_h) / 2;
         float fx = event->tfinger.x * ww - ss_x;
         float fy = event->tfinger.y * wh - ss_y;
-        if (fx >= 0 && fx < ss_draw_w && fy >= 0 && fy < ss_draw_h) {
+        if (fx >= 0 && fx < ss43_w && fy >= 0 && fy < ss43_h) {
           in_second_screen = true;
-          tap_x = fy * 640.0f / ss_draw_h;
-          tap_y = (ss_draw_w - fx) * 480.0f / ss_draw_w;
+          tap_x = fx * 640.0f / ss43_w;
+          tap_y = fy * 480.0f / ss43_h;
         }
+      }
+    } else if (g_ss_layout_mode == SS_LAYOUT_VERTICAL) {
+      // TATE mode: left 58% = game, right 42% = second screen, rotated 270° CW
+      int game_w = ww * 58 / 100;
+      int ss_w = ww - game_w;
+      // dst = (wh × ss_w), centered. After rotation visible = (ss_w × wh) = viewport.
+      int dw = wh, dh = ss_w;
+      float dst_x = (ss_w - dw) / 2.0f;
+      float dst_y = (wh - dh) / 2.0f;
+      // Touch in viewport coords (relative to game_w offset)
+      float fx = event->tfinger.x * ww - game_w;
+      float fy = event->tfinger.y * wh;
+      // Map to dst coords
+      float dst_fx = fx - dst_x;
+      float dst_fy = fy - dst_y;
+      // Check if within dst bounds
+      if (dst_fx >= 0 && dst_fx < dw && dst_fy >= 0 && dst_fy < dh) {
+        in_second_screen = true;
+        // Un-rotate 270° CCW: inverse is (-ry, rx) around center
+        float cx = dw / 2.0f, cy = dh / 2.0f;
+        float rx = dst_fx - cx, ry = dst_fy - cy;
+        float urx = -ry + cx, ury = rx + cy;
+        // Map from dst to texture coords
+        tap_x = urx * 640.0f / dw;
+        tap_y = ury * 480.0f / dh;
       }
     }
     if (in_second_screen) {
-      W = 640; H = (g_ss_layout_mode == SS_LAYOUT_VERTICAL) ? 480 : 360;
+      W = 640; H = 480;
       u = (W < H ? W : H) / 720.0f;
       if (u < 0.01f) u = 1.0f;
       handle_tap(tap_x, tap_y);

@@ -354,35 +354,35 @@ static void SdlRenderer_EndDraw() {
         SDL_RenderCopy(g_renderer, g_ss_texture, &ss_src, &right_dst);
       }
     } else {
-      // Vertical: left = game (9:16), right = second screen (3:4), both rotated 270° CW
-      int half_w = ww / 2;
+      // Vertical TATE mode (Flip Grip):
+      // Landscape: left = game (58%), right = second screen (42%), both rotated 270° CW
+      int game_w = ww * 58 / 100;
+      int ss_w = ww - game_w;
 
-      // Left half: game 9:16 (rotated)
+      // Left: game rotated 270° CW
       {
-        SDL_Rect left = { 0, 0, half_w, wh };
-        SDL_RenderSetViewport(g_renderer, &left);
-        // Original tex_w × tex_h, rotated → tex_h × tex_w
-        int rot_w = g_sdl_renderer_rect.h;
-        int rot_h = g_sdl_renderer_rect.w;
+        SDL_Rect left_vp = { 0, 0, game_w, wh };
+        SDL_RenderSetViewport(g_renderer, &left_vp);
+        int rot_w = g_sdl_renderer_rect.w;
+        int rot_h = g_sdl_renderer_rect.h;
         int draw_w, draw_h;
-        if (rot_w * wh > rot_h * half_w) { draw_w = half_w; draw_h = rot_h * half_w / rot_w; }
+        if (rot_w * wh > rot_h * game_w) { draw_w = game_w; draw_h = rot_h * game_w / rot_w; }
         else { draw_h = wh; draw_w = rot_w * wh / rot_h; }
-        SDL_Rect dst = { (half_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
+        SDL_Rect dst = { (game_w - draw_w) / 2, (wh - draw_h) / 2, draw_w, draw_h };
         SDL_RenderCopyEx(g_renderer, g_texture, &g_sdl_renderer_rect, &dst,
                          270.0, NULL, SDL_FLIP_NONE);
       }
 
-      // Right half: second screen 3:4 (rotated)
+      // Right: second screen 640×480 rotated 270° CW, stretched to fill viewport
       if (g_ss_texture) {
         SecondScreenSDL_RenderToTexture(g_renderer, g_ss_texture);
-        int right_w = ww - half_w;
-        // 640×480 rotated → 480×640 (3:4)
-        int rot_w = 480, rot_h = 640;
-        int ss_draw_w, ss_draw_h;
-        if (rot_w * wh > rot_h * right_w) { ss_draw_w = right_w; ss_draw_h = rot_h * right_w / rot_w; }
-        else { ss_draw_h = wh; ss_draw_w = rot_w * wh / rot_h; }
-        SDL_Rect ss_dst = { half_w + (right_w - ss_draw_w) / 2, (wh - ss_draw_h) / 2, ss_draw_w, ss_draw_h };
+        SDL_Rect right_vp = { game_w, 0, ss_w, wh };
+        SDL_RenderSetViewport(g_renderer, &right_vp);
+        // After 270° rotation, dst (dw×dh) → visible (dh×dw).
+        // We want visible = viewport (ss_w×wh), so dst = (wh×ss_w).
+        int dw = wh, dh = ss_w;
         SDL_Rect ss_src = {0, 0, 640, 480};
+        SDL_Rect ss_dst = { (ss_w - dw) / 2, (wh - dh) / 2, dw, dh };
         SDL_RenderCopyEx(g_renderer, g_ss_texture, &ss_src, &ss_dst,
                          270.0, NULL, SDL_FLIP_NONE);
       }
