@@ -1,8 +1,6 @@
 # Zelda3
 A reimplementation of Zelda 3.
 
-Our discord server is: https://discord.gg/AJJbJAzNNJ
-
 ## About
 
 This is a reverse engineered clone of Zelda 3 - A Link to the Past.
@@ -119,7 +117,7 @@ nxlink -s zelda3.nro
 
 | Button | Action |
 | ------ | ------ |
-| R3 (right stick click) | Cycle screen mode: 1 screen / horizontal / vertical |
+| R3 (right stick click) | Cycle screen mode: 1 screen / horizontal / vertical (TATE) |
 | L3 hold | Open save slot selector |
 | L3 + D-pad Up/Down or L/R | Navigate between save slots (0-9) |
 | L3 + X | Save to selected slot |
@@ -129,6 +127,15 @@ nxlink -s zelda3.nro
 | L1 + R1 | Pause |
 
 The slot selector shows the current slot number as an overlay on the game screen. The active slot is saved to `zelda3.ini` as `SaveSlot`.
+
+### Switch Screen Modes (R3 toggle)
+
+- **1 Screen** — Game fullscreen, no second screen
+- **Horizontal** — Game left (70%), second screen right (30%) in 4:3 aspect ratio
+- **Vertical (TATE)** — Flip Grip mode for portrait orientation:
+  - Game and second screen rendered side by side, both rotated 270° CW
+  - Second screen stretched to fill its viewport area
+  - Touch support with inverse rotation mapping
 
 ### Switch Files
 
@@ -213,29 +220,39 @@ This fork is based on two upstream projects:
 - **[snesrev/zelda3](https://github.com/snesrev/zelda3)** — The original C reimplementation of Zelda 3: A Link to the Past. Core engine, renderer, SNES PPU/DSP emulation, asset extraction, and all gameplay logic.
 - **[samyost1/zelda3-android](https://github.com/samyost1/zelda3-android)** (branch `dual-screen`) — Android port that introduced the dual-screen concept: a second screen UI with dungeon automap, overworld map, inventory management, gear view, and settings — all rendered from live game state via SDL.
 
-### Modifications applied
+### Features
 
 #### 1. Nintendo Switch NRO build
 - Cross-compilation toolchain via DevKitPro (`aarch64-none-elf-gcc`)
 - `src/platform/switch/Makefile` — Switch-specific build with `-D__SWITCH__`, `libnx`, and SDL2 for Switch
 - `SDL_RenderSetLogicalSize` disabled on Switch for manual aspect-ratio-correct rendering
-- Output: `zelda3.nro` (8.5 MB) ready for Atmosphere homebrew launcher
+- Output: `zelda3.nro` ready for Atmosphere homebrew launcher
 
-#### 2. Dual screen (vertical & horizontal split)
+#### 2. Dual screen (vertical, horizontal & TATE split)
 - Ported from `samyost1/zelda3-android` dual-screen UI to desktop (SDL separate window) and Nintendo Switch (split viewport)
-- Full interactive second screen: 4 tabs (Map, Items, Gear, Settings), sidebar with game state, touch/click inventory management, dungeon automap, overworld map
-- Switch split modes toggled via **R3** (right stick click):
-  - **1 screen** — game fullscreen
-  - **Horizontal** — game left, second screen right
-  - **Vertical** — game top (rotated 90°), second screen bottom
+- Full interactive second screen with 4 tabs:
+  - **Map** — Overworld map with Link position marker
+  - **Items** — 20-slot inventory grid with touch/click equip
+  - **Gear** — Sword, shield, armor, gloves, boots, flippers, moon pearl, bottles, pendants, and crystals
+  - **Settings** — Gamepad remap, widescreen toggle, HUD visibility toggle
+- Sidebar with rupees, bombs, arrows, Y-ring equipped item, hearts, and keys
+- Dungeon automap with room shapes, doors, and visited flags
 - `src/second_screen_sdl.c` — SDL frontend with draw primitives, theme textures (menu/parchment/stone), 77-icon tilemap, 38-glyph table
 - `src/second_screen.c` — Core game state access (SRAM, dungeon flags, link position, inventory) and action handlers (equip, assign, settings)
 - `src/second_screen_tables.h` — Generated icon and glyph tables from upstream tooling
 
+##### Switch split modes (R3 toggle):
+- **1 screen** — Game fullscreen, second screen hidden
+- **Horizontal** — Game left (70%), second screen right (30%) with 4:3 aspect ratio, touch support
+- **Vertical (TATE)** — For Flip Grip portrait play:
+  - Both game and second screen rotated 270° CW side by side
+  - Second screen stretched to fill its viewport (no black bars)
+  - Touch with inverse rotation mapping for accurate tap positioning
+
 #### 3. Widescreen rendering (16:9)
 - `ExtendedAspectRatio = 16:9` enabled by default on Switch
 - Game renders at 16:9 aspect ratio instead of 4:3
-- In vertical split mode, the game is rotated 90° via `SDL_RenderCopyEx` to fit the portrait orientation
+- Aspect-ratio-correct rendering in all split modes
 
 #### 4. Multi-language support (PT, ES, DE, FR, JA, ZH, KO)
 - `Language` option in `zelda3.ini` — set to `pt` for Portuguese
@@ -245,19 +262,34 @@ This fork is based on two upstream projects:
 - `assets/extract_langpack.py` — Generates language pack files from translated ROMs
 - Supports US base ROM + language pack overlay (no full ROM duplication needed)
 
-#### 5. Asset tools and theme system
+#### 5. Save/Load system (Switch)
+- **L3 hold** — Opens slot selector overlay (slots 0-9)
+- **L3 + D-pad/L/R** — Navigate between slots
+- **L3 + X** — Save current game to selected slot
+- **L3 + Y** — Load game from selected slot
+- **Minus (-)** — Quick save to slot 0
+- **Plus (+)** — Quick load from slot 0
+- Slot persists across sessions via `zelda3.ini` (`SaveSlot`)
+
+#### 6. Notification system (Switch)
+- Text and number overlays rendered via `kSmallFont` bitmap font
+- Visual feedback for save/load operations
+
+#### 7. Asset tools and theme system
 - `tools/secondscreen/gen_tables.py` — Generates `src/second_screen_tables.h` from `render_icons.py`
 - `tools/secondscreen/render_icons.py` — Icon and glyph sheet extraction from ROM
 - `tools/secondscreen/render_ui_assets.py` — UI texture generation from ROM
 - `assets/gen_linux_tables.py` — Generates `ss_textures.h` from PNG theme assets using Pillow
 - `assets/secondscreen/` — Upstream PNG theme assets (menu, parchment, stone textures) and JSON manifests from `samyost1/zelda3-android`
 
-#### 6. Additional code changes
+#### 8. Additional code changes
 - `src/load_gfx.h/c` — `GetSpriteTilesetPacks()` exposed for second screen sprite rendering
 - `src/config.h/c` — `save_slot`, `dual_screen`, `GamepadMap_GetControls/SetControls`
 - `src/messaging.h/c` — `GetDungmapRoomShape()` declaration and implementation for dungeon map rendering
 - `src/zelda_rtl.c` — `ZeldaSetWidescreen()`, `ZeldaApplyDimFlashesPalette()`, `ZeldaSetLanguage()`
-- Switch touch input handling for both horizontal and vertical split modes
+- Switch touch input handling for horizontal, vertical, and TATE split modes
+- TATE mode render: dst=(wh×ss_w) so rotated content fills full viewport without black bars
+- TATE mode touch: inverse rotation mapping from viewport → dst → texture coordinates
 
 ### Files added or modified
 
