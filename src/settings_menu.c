@@ -563,15 +563,18 @@ static void save_ini(void) {
   f = fopen("zelda3.ini", "w");
   if (!f) return;
 
+  // Track which keys exist in INI
+  bool had_show_hud = false, had_dual = false, had_show_menu = false;
+
   for (int i = 0; i < line_count; i++) {
     char *line = lines[i];
 
     // Update known keys
     if (starts_with(line, "Autosave"))            { write_ini_value(f, "Autosave", "%d", g_config.autosave); continue; }
     if (starts_with(line, "SaveSlot"))            { write_ini_value(f, "SaveSlot", "%d", g_config.save_slot); continue; }
-    if (starts_with(line, "DualScreen"))          { write_ini_value(f, "DualScreen", "%d", g_config.dual_screen); continue; }
-    if (starts_with(line, "ShowHudDualScreen"))   { write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen); continue; }
-    if (starts_with(line, "ShowSettingsMenu"))    { write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu); continue; }
+    if (starts_with(line, "DualScreen"))          { write_ini_value(f, "DualScreen", "%d", g_config.dual_screen); had_dual = true; continue; }
+    if (starts_with(line, "ShowHudDualScreen"))   { write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen); had_show_hud = true; continue; }
+    if (starts_with(line, "ShowSettingsMenu"))    { write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu); had_show_menu = true; continue; }
     if (starts_with(line, "RunWithoutEmu"))       { write_ini_value(f, "RunWithoutEmu", "%d", g_config.run_without_emu); continue; }
     if (starts_with(line, "DisplayPerfInTitle"))  { write_ini_value(f, "DisplayPerfInTitle", "%d", g_config.display_perf_title); continue; }
     if (starts_with(line, "Language"))            { fprintf(f, "Language = %s\n", g_config.language ? g_config.language : "us"); continue; }
@@ -599,6 +602,11 @@ static void save_ini(void) {
     // Pass through unchanged
     fputs(line, f);
   }
+
+  // Write missing keys that may not exist in old INI files
+  if (!had_show_hud) write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen);
+  if (!had_dual) write_ini_value(f, "DualScreen", "%d", g_config.dual_screen);
+  if (!had_show_menu) write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu);
 
   fclose(f);
 }

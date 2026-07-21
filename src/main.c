@@ -400,12 +400,24 @@ static void SdlRenderer_EndDraw() {
     g_notify_text[0] = 0;
   }
 
-  // Draw achievement unlock notification
-  if (Achievement_HasNotification()) {
-    char ach_text[200];
-    snprintf(ach_text, sizeof(ach_text), "ACHIEVEMENT: %s - %s",
-             Achievement_GetNotificationTitle(), Achievement_GetNotificationDesc());
-    SettingsMenu_RenderNotify(g_renderer, ach_text);
+  // Draw achievement unlock notification (auto-clear after 3 seconds)
+  {
+    static char ach_text_buf[200] = {0};
+    static uint32_t ach_notify_until = 0;
+
+    if (Achievement_HasNotification()) {
+      snprintf(ach_text_buf, sizeof(ach_text_buf), "ACHIEVEMENT: %s - %s",
+               Achievement_GetNotificationTitle(), Achievement_GetNotificationDesc());
+      ach_notify_until = SDL_GetTicks() + 3000;
+      Achievement_ClearNotification();
+    }
+
+    if (ach_notify_until > 0 && SDL_GetTicks() < ach_notify_until) {
+      SettingsMenu_RenderNotify(g_renderer, ach_text_buf);
+    } else {
+      ach_notify_until = 0;
+      ach_text_buf[0] = 0;
+    }
   }
 
   SDL_RenderPresent(g_renderer);
