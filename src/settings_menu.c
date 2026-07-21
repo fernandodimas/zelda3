@@ -59,6 +59,7 @@ static int local_extend_y;
 static int local_run_without_emu;
 static int local_display_perf_title;
 static int local_dual_screen;
+static int local_show_hud_dual_screen;
 static int local_language;
 
 // ============ Draw primitives ============
@@ -323,6 +324,7 @@ static SettingItem g_graphics_items[] = {
   { "RENDERER NOVO",  OPT_TOGGLE, &local_new_renderer, 0, NULL, 0, 1 },
   { "SEM LIMITE SP",  OPT_TOGGLE, &local_no_sprite_limits, 0, NULL, 0, 1 },
   { "FILTRO BILINEAR",OPT_TOGGLE, &local_linear_filtering, 0, NULL, 0, 1 },
+  { "HUD NO DUAL",    OPT_TOGGLE, &local_show_hud_dual_screen, 0, NULL, 0, 1 },
 };
 #else
 static SettingItem g_graphics_items[] = {
@@ -539,6 +541,8 @@ static void save_ini(void) {
   g_config.run_without_emu = local_run_without_emu != 0;
   g_config.display_perf_title = local_display_perf_title != 0;
   g_config.dual_screen = local_dual_screen != 0;
+  g_config.show_hud_dual_screen = local_show_hud_dual_screen != 0;
+  SS_RefreshHud();
   // Save language selection
   if (local_language >= 0 && local_language < g_lang_count)
     g_config.language = g_lang_codes[local_language];
@@ -566,6 +570,7 @@ static void save_ini(void) {
     if (starts_with(line, "Autosave"))            { write_ini_value(f, "Autosave", "%d", g_config.autosave); continue; }
     if (starts_with(line, "SaveSlot"))            { write_ini_value(f, "SaveSlot", "%d", g_config.save_slot); continue; }
     if (starts_with(line, "DualScreen"))          { write_ini_value(f, "DualScreen", "%d", g_config.dual_screen); continue; }
+    if (starts_with(line, "ShowHudDualScreen"))   { write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen); continue; }
     if (starts_with(line, "ShowSettingsMenu"))    { write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu); continue; }
     if (starts_with(line, "RunWithoutEmu"))       { write_ini_value(f, "RunWithoutEmu", "%d", g_config.run_without_emu); continue; }
     if (starts_with(line, "DisplayPerfInTitle"))  { write_ini_value(f, "DisplayPerfInTitle", "%d", g_config.display_perf_title); continue; }
@@ -655,6 +660,7 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
   local_run_without_emu = g_config.run_without_emu;
   local_display_perf_title = g_config.display_perf_title;
   local_dual_screen = g_config.dual_screen;
+  local_show_hud_dual_screen = g_config.show_hud_dual_screen;
   // Find language index from config
   local_language = 0;
   if (g_config.language) {
@@ -1041,6 +1047,7 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
   return started;
 }
 
+// ============ In-game settings menu ============
 void SettingsMenu_RenderNotify(SDL_Renderer *renderer, const char *text) {
   if (!text || !text[0]) return;
   // Ensure textures are loaded

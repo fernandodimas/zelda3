@@ -2,7 +2,7 @@
 #include <SDL.h>
 #include <stdbool.h>
 
-// Run the settings menu loop. Returns true if user started the game,
+// Run the settings menu loop (pre-game). Returns true if user started the game,
 // false if user pressed B/cancel (game should still start with current config).
 bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window);
 

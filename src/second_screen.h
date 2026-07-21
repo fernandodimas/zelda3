@@ -29,6 +29,7 @@ void SS_SetWidescreen(bool on);
 bool SS_IsWidescreen(void);
 void SS_SetHudHidden(bool hide);
 bool SS_IsHudHidden(void);
+void SS_RefreshHud(void);
 uint32 SS_GetFeatures(void);
 void SS_SetFeature(unsigned mask, bool on);
 void SS_ArmButtonCapture(bool arm);

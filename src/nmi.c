@@ -205,7 +205,7 @@ void NMI_DoUpdates() {  // 8089e0
     memcpy(&g_zenv.vram[animated_tile_vram_addr], &g_ram[animated_tile_data_src], 0x400);
   }
 
-  if (flag_update_hud_in_nmi) {
+  if (flag_update_hud_in_nmi || SS_IsHudHidden()) {
     if (SS_IsHudHidden()) {
       // Write blank tiles to clear HUD from main screen
       static uint16 blank_hud[165];

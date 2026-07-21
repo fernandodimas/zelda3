@@ -419,6 +419,8 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
       return true;
     } else if (StringEqualsNoCase(key, "DualScreen")) {
       return ParseBool(value, &g_config.dual_screen);
+    } else if (StringEqualsNoCase(key, "ShowHudDualScreen")) {
+      return ParseBool(value, &g_config.show_hud_dual_screen);
     } else if (StringEqualsNoCase(key, "ExtendedAspectRatio")) {
       const char* s;
       int h = 224;

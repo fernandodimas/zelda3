@@ -71,6 +71,7 @@ typedef struct Config {
   uint8 msuvolume;
   uint32 features0;
   bool dual_screen;
+  bool show_hud_dual_screen;
   bool show_settings_menu;
 
   const char *link_graphics;

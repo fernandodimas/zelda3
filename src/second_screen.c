@@ -384,9 +384,20 @@ void SS_SetHudHidden(bool hide) { g_pending_hide_hud = hide ? 1 : 0; }
 
 bool SS_IsHudHidden(void) {
   // Auto-hide HUD on main screen when dual screen is active and showing second screen
-  if (g_config.dual_screen && SecondScreenSDL_GetLayoutMode() != SS_LAYOUT_1SCREEN)
+  if (g_config.dual_screen && !g_config.show_hud_dual_screen && SecondScreenSDL_GetLayoutMode() != SS_LAYOUT_1SCREEN)
     return true;
   return g_ss_hide_hud;
+}
+
+void SS_RefreshHud(void) {
+  if (main_module_index == 7 || main_module_index == 9 || main_module_index == 14) {
+    if (SS_IsHudHidden()) {
+      // Force NMI to write blank tiles every frame until HUD is hidden
+      flag_update_hud_in_nmi++;
+    } else {
+      Hud_Rebuild();
+    }
+  }
 }
 
 uint32 SS_GetFeatures(void) {

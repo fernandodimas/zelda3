@@ -553,7 +553,6 @@ int main(int argc, char** argv) {
                          g_config.enhanced_mode7 * kPpuRenderFlags_4x4Mode7 |
                          g_config.extend_y * kPpuRenderFlags_Height240 |
                          g_config.no_sprite_limits * kPpuRenderFlags_NoSpriteLimits;
-    // Re-apply language (reload langpack if language changed)
     ReloadLangpack(g_config.language);
 #ifndef __SWITCH__
     SDL_SetWindowSize(window, g_config.window_width, g_config.window_height);
