@@ -6,6 +6,7 @@
 #include "snes/ppu.h"
 #include "assets.h"
 #include "audio.h"
+#include "second_screen.h"
 
 static const uint8 kNmiVramAddrs[] = {
   0, 0, 4, 8, 12, 8, 12, 0, 4, 0, 8, 4, 12, 4, 12, 0,
@@ -205,7 +206,18 @@ void NMI_DoUpdates() {  // 8089e0
   }
 
   if (flag_update_hud_in_nmi) {
-    memcpy(&g_zenv.vram[word_7E0219], hud_tile_indices_buffer, 165 * sizeof(uint16));
+    if (SS_IsHudHidden()) {
+      // Write blank tiles to clear HUD from main screen
+      static uint16 blank_hud[165];
+      static bool blank_inited;
+      if (!blank_inited) {
+        for (int i = 0; i < 165; i++) blank_hud[i] = 0x207f;
+        blank_inited = true;
+      }
+      memcpy(&g_zenv.vram[word_7E0219], blank_hud, 165 * sizeof(uint16));
+    } else {
+      memcpy(&g_zenv.vram[word_7E0219], hud_tile_indices_buffer, 165 * sizeof(uint16));
+    }
   }
 
   if (flag_update_cgram_in_nmi) {

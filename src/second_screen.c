@@ -13,6 +13,7 @@
 #include "messaging.h"
 #include "config.h"
 #include "zelda_rtl.h"
+#include "second_screen_sdl.h"
 #include "snes/ppu.h"
 #include "second_screen_tables.h"
 
@@ -382,8 +383,9 @@ bool SS_IsWidescreen(void) {
 void SS_SetHudHidden(bool hide) { g_pending_hide_hud = hide ? 1 : 0; }
 
 bool SS_IsHudHidden(void) {
-  int pending = g_pending_hide_hud;
-  if (pending >= 0) return pending != 0;
+  // Auto-hide HUD on main screen when dual screen is active and showing second screen
+  if (g_config.dual_screen && SecondScreenSDL_GetLayoutMode() != SS_LAYOUT_1SCREEN)
+    return true;
   return g_ss_hide_hud;
 }
 
@@ -434,10 +436,13 @@ void SecondScreen_RunFrameHook(void) {
     g_pending_hide_hud = -1;
     g_ss_hide_hud = hh != 0;
     if (main_module_index == 7 || main_module_index == 9 || main_module_index == 14) {
-      if (g_ss_hide_hud)
+      if (g_ss_hide_hud) {
+        for (int i = 0; i < 165; i++)
+          hud_tile_indices_buffer[i] = 0x207f;
         flag_update_hud_in_nmi++;
-      else
+      } else {
         Hud_Rebuild();
+      }
     }
   }
   if (g_pending_controls_set) {
