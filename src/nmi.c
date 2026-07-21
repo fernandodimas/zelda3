@@ -205,19 +205,18 @@ void NMI_DoUpdates() {  // 8089e0
     memcpy(&g_zenv.vram[animated_tile_vram_addr], &g_ram[animated_tile_data_src], 0x400);
   }
 
-  if (flag_update_hud_in_nmi || SS_IsHudHidden()) {
-    if (SS_IsHudHidden()) {
-      // Write blank tiles to clear HUD from main screen
-      static uint16 blank_hud[165];
-      static bool blank_inited;
-      if (!blank_inited) {
-        for (int i = 0; i < 165; i++) blank_hud[i] = 0x207f;
-        blank_inited = true;
-      }
-      memcpy(&g_zenv.vram[word_7E0219], blank_hud, 165 * sizeof(uint16));
-    } else {
-      memcpy(&g_zenv.vram[word_7E0219], hud_tile_indices_buffer, 165 * sizeof(uint16));
+  if (SS_IsHudHidden()) {
+    // Always write blank tiles when HUD is hidden - ignore flag_update_hud_in_nmi
+    static uint16 blank_hud[165];
+    static bool blank_inited;
+    if (!blank_inited) {
+      for (int i = 0; i < 165; i++) blank_hud[i] = 0x207f;
+      blank_inited = true;
     }
+    memcpy(&g_zenv.vram[word_7E0219], blank_hud, 165 * sizeof(uint16));
+    flag_update_hud_in_nmi = 0;
+  } else if (flag_update_hud_in_nmi) {
+    memcpy(&g_zenv.vram[word_7E0219], hud_tile_indices_buffer, 165 * sizeof(uint16));
   }
 
   if (flag_update_cgram_in_nmi) {

@@ -6,6 +6,7 @@
 #include "nmi.h"
 #include "poly.h"
 #include "attract.h"
+#include "achievement.h"
 #include "snes/ppu.h"
 #include "snes/snes_regs.h"
 #include "snes/dma.h"
@@ -293,6 +294,9 @@ void ZeldaRunFrameInternal(uint16 input, int run_what) {
   if (run_what & 1)
     ZeldaRunGameLoop();
   Interrupt_NMI(input);
+
+  // Evaluate achievements every frame
+  Achievement_EvaluateFrame();
 }
 
 

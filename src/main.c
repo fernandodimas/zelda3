@@ -28,6 +28,7 @@
 #include "audio.h"
 #include "second_screen_sdl.h"
 #include "settings_menu.h"
+#include "achievement.h"
 
 static bool g_run_without_emu = 0;
 
@@ -399,6 +400,14 @@ static void SdlRenderer_EndDraw() {
     g_notify_text[0] = 0;
   }
 
+  // Draw achievement unlock notification
+  if (Achievement_HasNotification()) {
+    char ach_text[200];
+    snprintf(ach_text, sizeof(ach_text), "ACHIEVEMENT: %s - %s",
+             Achievement_GetNotificationTitle(), Achievement_GetNotificationDesc());
+    SettingsMenu_RenderNotify(g_renderer, ach_text);
+  }
+
   SDL_RenderPresent(g_renderer);
 }
 
@@ -426,6 +435,7 @@ int main(int argc, char** argv) {
   g_run_without_emu = g_config.run_without_emu;
   LoadAssets();
   LoadLinkGraphics();
+  Achievement_Init();
 
   ZeldaInitialize();
   g_zenv.ppu->extraLeftRight = UintMin(g_config.extended_aspect_ratio, kPpuExtraLeftRight);
@@ -688,6 +698,9 @@ int main(int argc, char** argv) {
   free(g_audiobuffer);
 
   g_renderer_funcs.Destroy();
+
+  // Save achievements before cleanup
+  Achievement_Save();
 
   // Cleanup second screen
   SecondScreenSDL_Destroy();
