@@ -27,6 +27,7 @@
 #include "util.h"
 #include "audio.h"
 #include "second_screen_sdl.h"
+#include "settings_menu.h"
 
 static bool g_run_without_emu = 0;
 
@@ -43,6 +44,7 @@ static void HandleGamepadAxisInput(int gamepad_id, int axis, int value);
 static void OpenOneGamepad(int i);
 static void HandleVolumeAdjustment(int volume_adjustment);
 static void LoadAssets();
+static void ReloadLangpack(const char *lang);
 static void SwitchDirectory(const char *argv0);
 
 enum {
@@ -212,7 +214,7 @@ static void SDLCALL AudioCallback(void *userdata, Uint8 *stream, int len) {
 }
 
 // State for sdl renderer
-static SDL_Renderer *g_renderer;
+SDL_Renderer *g_renderer;
 static SDL_Texture *g_texture;
 static SDL_Rect g_sdl_renderer_rect;
 #ifdef __SWITCH__
@@ -282,27 +284,19 @@ static void SdlRenderer_EndDraw() {
   SDL_UnlockTexture(g_texture);
 
 #ifdef __SWITCH__
-  // Draw slot menu + notification overlay into the game texture
+  // Draw slot menu overlay into the game texture
   bool show_slot = g_slot_menu_open || g_slot_menu_flash > 0;
-  bool show_notify = g_notify_until > 0 && SDL_GetTicks() < g_notify_until;
-  if (show_slot || show_notify) {
+  if (show_slot) {
     uint8 *px; int px_pitch;
     if (SDL_LockTexture(g_texture, &g_sdl_renderer_rect, (void **)&px, &px_pitch) == 0) {
-      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
-      // Same box style as slot selector
       int bx = 4, by = 4, bw = 80, bh = 36;
+      int tex_w = g_sdl_renderer_rect.w, tex_h = g_sdl_renderer_rect.h;
       for (int y = by; y < by + bh && y < tex_h; y++) {
         uint32 *row = (uint32 *)(px + y * px_pitch);
         for (int x = bx; x < bx + bw && x < tex_w; x++)
           row[x] = 0xC0000000;
       }
-      if (show_slot) {
-        RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
-      }
-      if (show_notify) {
-        RenderText(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_notify_text, 0x00ff00);
-        if (SDL_GetTicks() >= g_notify_until) g_notify_text[0] = 0;
-      }
+      RenderNumber(px + (by + 10) * px_pitch + bx * 4, px_pitch, g_config.save_slot, false);
       SDL_UnlockTexture(g_texture);
     }
     if (g_slot_menu_flash > 0) g_slot_menu_flash--;
@@ -397,6 +391,13 @@ static void SdlRenderer_EndDraw() {
 #else
   SDL_RenderCopy(g_renderer, g_texture, &g_sdl_renderer_rect, NULL);
 #endif
+
+  // Draw notification overlay
+  if (g_notify_until > 0 && SDL_GetTicks() < g_notify_until) {
+    SettingsMenu_RenderNotify(g_renderer, g_notify_text);
+  } else {
+    g_notify_text[0] = 0;
+  }
 
   SDL_RenderPresent(g_renderer);
 }
@@ -539,6 +540,27 @@ int main(int argc, char** argv) {
 
   for (int i = 0; i < SDL_NumJoysticks(); i++)
     OpenOneGamepad(i);
+
+  // Show pre-game settings menu if enabled
+  if (g_config.show_settings_menu) {
+    SettingsMenu_Run(g_renderer, window);
+    // Re-apply settings after menu
+    g_zenv.ppu->extraLeftRight = UintMin(g_config.extended_aspect_ratio, kPpuExtraLeftRight);
+    g_snes_width = (g_config.extended_aspect_ratio * 2 + 256);
+    g_snes_height = (g_config.extend_y ? 240 : 224);
+    g_wanted_zelda_features = g_config.features0;
+    g_ppu_render_flags = g_config.new_renderer * kPpuRenderFlags_NewRenderer |
+                         g_config.enhanced_mode7 * kPpuRenderFlags_4x4Mode7 |
+                         g_config.extend_y * kPpuRenderFlags_Height240 |
+                         g_config.no_sprite_limits * kPpuRenderFlags_NoSpriteLimits;
+    // Re-apply language (reload langpack if language changed)
+    ReloadLangpack(g_config.language);
+#ifndef __SWITCH__
+    SDL_SetWindowSize(window, g_config.window_width, g_config.window_height);
+    if (!g_config.ignore_aspect_ratio)
+      SDL_RenderSetLogicalSize(g_renderer, g_snes_width, g_snes_height);
+#endif
+  }
 
   bool running = true;
   SDL_Event event;
@@ -933,15 +955,38 @@ static void HandleGamepadInput(int button, bool pressed) {
   // When L3 is held: L3+Y = save, L3+X = load, D-pad/L/R = navigate slots
   if (g_l3_held) {
     if (pressed) {
+      const char *lang = g_config.language ? g_config.language : "us";
       if (button == kGamepadBtn_X) {
         HandleCommand(kKeys_Save + g_config.save_slot, true);
-        snprintf(g_notify_text, sizeof(g_notify_text), "SALVO! SLOT %d", g_config.save_slot);
+        if (strcmp(lang, "pt") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "SALVO! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "es") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "GUARDADO! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "de") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "GESPEICHERT! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "fr") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "SAUVEGARDE! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "ja") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "HOZON! SLOT %d", g_config.save_slot);
+        else
+          snprintf(g_notify_text, sizeof(g_notify_text), "SAVED! SLOT %d", g_config.save_slot);
         g_notify_until = SDL_GetTicks() + 2000;
         g_slot_menu_flash = 30;
         return;
       } else if (button == kGamepadBtn_Y) {
         HandleCommand(kKeys_Load + g_config.save_slot, true);
-        snprintf(g_notify_text, sizeof(g_notify_text), "CARREGADO! SLOT %d", g_config.save_slot);
+        if (strcmp(lang, "pt") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "CARREGADO! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "es") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "CARGA! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "de") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "GELADEN! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "fr") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "CHARGEE! SLOT %d", g_config.save_slot);
+        else if (strcmp(lang, "ja") == 0)
+          snprintf(g_notify_text, sizeof(g_notify_text), "YOMIKOMI! SLOT %d", g_config.save_slot);
+        else
+          snprintf(g_notify_text, sizeof(g_notify_text), "LOADED! SLOT %d", g_config.save_slot);
         g_notify_until = SDL_GetTicks() + 2000;
         g_slot_menu_flash = 30;
         return;
@@ -1147,11 +1192,26 @@ static void LoadAssets() {
     }
   }
 
-  if (g_config.features0 & kFeatures0_DimFlashes) { // patch dungeon floor palettes
+  if (g_config.features0 & kFeatures0_DimFlashes) {
     kPalette_DungBgMain[0x484] = 0x70;
     kPalette_DungBgMain[0x485] = 0x95;
     kPalette_DungBgMain[0x486] = 0x57;
   }
+}
+
+static void ReloadLangpack(const char *lang) {
+  LoadAssetFile("zelda3_assets.dat", &g_asset_data);
+  if (g_langpack_data) { free(g_langpack_data); g_langpack_data = NULL; }
+  if (lang && strcmp(lang, "us") != 0) {
+    char langpack_name[64];
+    snprintf(langpack_name, sizeof(langpack_name), "zelda3_langpack_%s.dat", lang);
+    size_t langpack_size = 0;
+    g_langpack_data = ReadWholeFile(langpack_name, &langpack_size);
+    if (g_langpack_data) {
+      OverlayLangpack(g_langpack_data, langpack_size);
+    }
+  }
+  ZeldaSetLanguage(lang);
 }
 
 // Prefer the directory of the executable, then fall back to searching upward for zelda3.ini.

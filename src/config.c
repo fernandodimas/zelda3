@@ -456,6 +456,8 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
     } else if (StringEqualsNoCase(key, "Language")) {
       g_config.language = value;
       return true;
+    } else if (StringEqualsNoCase(key, "ShowSettingsMenu")) {
+      return ParseBool(value, &g_config.show_settings_menu);
     }
   } else if (section == 4) {
     if (StringEqualsNoCase(key, "ItemSwitchLR")) {
