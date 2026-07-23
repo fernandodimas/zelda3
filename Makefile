@@ -14,7 +14,11 @@ else
     SDLFLAGS:=$(shell sdl2-config --libs) -lm
 endif
 
-.PHONY: all clean clean_obj clean_gen
+.PHONY: all clean clean_obj clean_gen test
+
+# Unit tests — compiles util.c + test_main.c without SDL dependency
+TEST_EXEC:=run_tests
+TEST_CFLAGS:=-O2 -Werror -I . -I src -DSYSTEM_VOLUME_MIXER_AVAILABLE=0
 
 all: $(TARGET_EXEC) zelda3_assets.dat
 $(TARGET_EXEC): $(OBJS) $(RES)
@@ -30,9 +34,20 @@ zelda3_assets.dat:
 	@echo "Extracting game resources"
 	$(PYTHON) assets/restool.py --extract-from-rom
 
+test: $(TARGET_EXEC) $(TEST_EXEC)
+	@echo "Running unit tests..."
+	./$(TEST_EXEC)
+	@echo "Running smoke tests..."
+	./$(TARGET_EXEC) --help
+	./$(TARGET_EXEC) --version
+	@echo "All tests passed."
+
 clean: clean_obj clean_gen
 clean_obj:
-	@$(RM) $(OBJS) $(TARGET_EXEC)
+	@$(RM) $(OBJS) $(TARGET_EXEC) $(TEST_EXEC)
 clean_gen:
 	@$(RM) $(RES) zelda3_assets.dat tables/zelda3_assets.dat tables/*.txt tables/*.png tables/sprites/*.png tables/*.yaml
 	@rm -rf tables/__pycache__ tables/dungeon tables/img tables/overworld tables/sound
+
+$(TEST_EXEC): src/util.c tests/test_main.c
+	$(CC) $(TEST_CFLAGS) src/util.c tests/test_main.c -o $@ -lm

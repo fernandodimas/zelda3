@@ -280,28 +280,6 @@ static int GetIniSection(const char *s) {
   return -1;
 }
 
-bool ParseBool(const char *value, bool *result) {
-  bool rv = false;
-  switch (*value++ | 32) {
-  case '0': if (*value == 0) break; return false;
-  case 'f': if (StringEqualsNoCase(value, "alse")) break; return false;
-  case 'n': if (StringEqualsNoCase(value, "o")) break; return false;
-  case 'o':
-    rv = (*value | 32) == 'n';
-    if (StringEqualsNoCase(value, rv ? "n" : "ff")) break;
-    return false;
-  case '1': rv = true; if (*value == 0) break; return false;
-  case 'y': rv = true; if (StringEqualsNoCase(value, "es")) break; return false;
-  case 't': rv = true; if (StringEqualsNoCase(value, "rue")) break; return false;
-  default: return false;
-  }
-  if (result) {
-    *result = rv;
-    return true;
-  }
-  return rv;
-}
-
 static bool ParseBoolBit(const char *value, uint32 *data, uint32 mask) {
   bool tmp;
   if (!ParseBool(value, &tmp))
@@ -421,6 +399,11 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
       return ParseBool(value, &g_config.dual_screen);
     } else if (StringEqualsNoCase(key, "ShowHudDualScreen")) {
       return ParseBool(value, &g_config.show_hud_dual_screen);
+    } else if (StringEqualsNoCase(key, "DualScreenLayout")) {
+      g_config.dual_screen_layout = (int)strtol(value, (char**)NULL, 10);
+      if (g_config.dual_screen_layout < 0 || g_config.dual_screen_layout > 2)
+        g_config.dual_screen_layout = 0;
+      return true;
     } else if (StringEqualsNoCase(key, "ExtendedAspectRatio")) {
       const char* s;
       int h = 224;
@@ -460,6 +443,8 @@ static bool HandleIniConfig(int section, const char *key, char *value) {
       return true;
     } else if (StringEqualsNoCase(key, "ShowSettingsMenu")) {
       return ParseBool(value, &g_config.show_settings_menu);
+    } else if (StringEqualsNoCase(key, "AchievementsEnabled")) {
+      return ParseBool(value, &g_config.achievements_enabled);
     }
   } else if (section == 4) {
     if (StringEqualsNoCase(key, "ItemSwitchLR")) {

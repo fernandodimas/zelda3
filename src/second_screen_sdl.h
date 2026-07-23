@@ -13,6 +13,7 @@ void SecondScreenSDL_Toggle(void);
 enum { SS_LAYOUT_1SCREEN = 0, SS_LAYOUT_HORIZONTAL = 1, SS_LAYOUT_VERTICAL = 2 };
 int  SecondScreenSDL_GetLayoutMode(void);
 void SecondScreenSDL_CycleLayoutMode(void);
+void SecondScreenSDL_SetLayoutMode(int mode);
 
 #ifdef __SWITCH__
 void SecondScreenSDL_SetRenderer(SDL_Renderer *renderer);

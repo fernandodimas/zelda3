@@ -393,7 +393,8 @@ void ZeldaReset(bool preserve_sram) {
   ZeldaRestoreMusicAfterLoad_Locked(true);
   ZeldaApuUnlock();
   EmuSynchronizeWholeState();
-
+  // Suppress achievement triggers after reset (RAM wiped)
+  Achievement_NotifyStateLoaded();
 }
 
 static void LoadSnesState(SaveLoadFunc *func, void *ctx) {
@@ -811,10 +812,13 @@ void SaveLoadSlot(int cmd, int which) {
     printf("*** %s slot %d\n",
       cmd == kSaveLoad_Save ? "Saving" : cmd == kSaveLoad_Load ? "Loading" : "Replaying", which);
 
-    if (cmd != kSaveLoad_Save)
+    if (cmd != kSaveLoad_Save) {
       StateRecorder_Load(&state_recorder, f, cmd == kSaveLoad_Replay);
-    else
+      // Notify achievement system to suppress false triggers after state load
+      Achievement_NotifyStateLoaded();
+    } else {
       StateRecorder_Save(&state_recorder, f);
+    }
 
     fclose(f);
   }

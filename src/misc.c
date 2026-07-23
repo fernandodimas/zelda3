@@ -133,6 +133,7 @@ static PlayerHandlerFunc *const kModule_BossVictory[6] = {
   &Dungeon_PrepExitWithSpotlight,
   &Spotlight_ConfigureTableAndControl,
 };
+_Static_assert(countof(kModule_BossVictory) == 6, "kModule_BossVictory must have 6 entries");
 static PlayerHandlerFunc *const kModule_KillAgahnim[13] = {
   &KillAgahnim_LoadMusic,
   &KillAghanim_Init,
@@ -148,6 +149,7 @@ static PlayerHandlerFunc *const kModule_KillAgahnim[13] = {
   &Dungeon_RunVictorySpin,
   &KillAghanim_Func12,
 };
+_Static_assert(countof(kModule_KillAgahnim) == 13, "kModule_KillAgahnim must have 13 entries");
 static PlayerHandlerFunc *const kMainRouting[28] = {
   &Module00_Intro,
   &Module01_FileSelect,
@@ -178,6 +180,7 @@ static PlayerHandlerFunc *const kMainRouting[28] = {
   &Module1A_Credits,
   &Module1B_SpawnSelect,
 };
+_Static_assert(countof(kMainRouting) == 28, "kMainRouting must have 28 entries");
 
 const uint16 *SrcPtr(uint16 src) {
   return &kPredefinedTileData[src >> 1];

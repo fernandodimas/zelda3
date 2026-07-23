@@ -38,6 +38,28 @@ const char *StringStartsWithNoCase(const char *a, const char *b) {
   }
 }
 
+bool ParseBool(const char *value, bool *result) {
+  bool rv = false;
+  switch (*value++ | 32) {
+  case '0': if (*value == 0) break; return false;
+  case 'f': if (StringEqualsNoCase(value, "alse")) break; return false;
+  case 'n': if (StringEqualsNoCase(value, "o")) break; return false;
+  case 'o':
+    rv = (*value | 32) == 'n';
+    if (StringEqualsNoCase(value, rv ? "n" : "ff")) break;
+    return false;
+  case '1': rv = true; if (*value == 0) break; return false;
+  case 'y': rv = true; if (StringEqualsNoCase(value, "es")) break; return false;
+  case 't': rv = true; if (StringEqualsNoCase(value, "rue")) break; return false;
+  default: return false;
+  }
+  if (result) {
+    *result = rv;
+    return true;
+  }
+  return rv;
+}
+
 uint8 *ReadWholeFile(const char *name, size_t *length) {
   FILE *f = fopen(name, "rb");
   if (f == NULL)
@@ -234,7 +256,7 @@ uint8 *ApplyBps(const uint8 *src, size_t src_size_in,
   bps += 4;
   uint32 src_size = BpsDecodeInt(&bps);
   uint32 dst_size = BpsDecodeInt(&bps);
-  uint32 meta_size = BpsDecodeInt(&bps);
+  BpsDecodeInt(&bps);  // meta_size (unused)
   uint32 outputOffset = 0;
   uint32 sourceRelativeOffset = 0;
   uint32 targetRelativeOffset = 0;

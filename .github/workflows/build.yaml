@@ -35,3 +35,26 @@ jobs:
         brew install sdl2 coreutils
     - name: Build
       run: make -j$(nproc) zelda3
+    - name: Smoke test (--help)
+      run: ./zelda3 --help
+    - name: Smoke test (--version)
+      run: ./zelda3 --version
+    - name: Run make test
+      run: |
+        if grep -q '^test:' Makefile; then
+          make test
+        else
+          echo "No test target found, skipping."
+        fi
+    - name: Verify asset extraction script
+      run: |
+        python3 -c "import py_compile; py_compile.compile('assets/restool.py', doraise=True)"
+        echo "restool.py compiles OK"
+    - name: Verify assets generation (requires ROM)
+      run: |
+        if [ -f zelda3.sfc ]; then
+          make zelda3_assets.dat
+          test -f zelda3_assets.dat && echo "zelda3_assets.dat generated successfully"
+        else
+          echo "::notice::ROM (zelda3.sfc) not available, skipping asset generation check"
+        fi

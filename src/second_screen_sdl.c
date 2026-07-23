@@ -127,6 +127,11 @@ void SecondScreenSDL_CycleLayoutMode(void) {
     g_ss_layout_mode == SS_LAYOUT_HORIZONTAL ? "horizontal" : "vertical");
 }
 
+void SecondScreenSDL_SetLayoutMode(int mode) {
+  if (mode >= 0 && mode <= 2)
+    g_ss_layout_mode = mode;
+}
+
 static RectFS map_area_r, tab_items_r, tab_gear_r, tab_map_r, tab_settings_r, y_ring_r;
 static RectFS settings_row_r[3], remap_row_r[12], remap_back_r;
 

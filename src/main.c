@@ -36,7 +36,6 @@ static bool g_run_without_emu = 0;
 static bool LoadRom(const char *filename);
 static void LoadLinkGraphics();
 static void RenderNumber(uint8 *dst, size_t pitch, int n, bool big);
-static void RenderText(uint8 *dst, size_t pitch, const char *text, uint32 color);
 static void HandleInput(int keyCode, int modCode, bool pressed);
 static void HandleCommand(uint32 j, bool pressed);
 static int RemapSdlButton(int button);
@@ -400,23 +399,32 @@ static void SdlRenderer_EndDraw() {
     g_notify_text[0] = 0;
   }
 
-  // Draw achievement unlock notification (auto-clear after 3 seconds)
+  // Draw achievement unlock notification (auto-clear after 3 seconds, gameplay only)
   {
-    static char ach_text_buf[200] = {0};
     static uint32_t ach_notify_until = 0;
+    static uint32_t ach_id = 0;
+    static char ach_title[64] = {0};
+    static char ach_desc[128] = {0};
 
     if (Achievement_HasNotification()) {
-      snprintf(ach_text_buf, sizeof(ach_text_buf), "ACHIEVEMENT: %s - %s",
-               Achievement_GetNotificationTitle(), Achievement_GetNotificationDesc());
+      ach_id = Achievement_GetNotificationId();
+      strncpy(ach_title, Achievement_GetNotificationTitle(), sizeof(ach_title) - 1);
+      strncpy(ach_desc, Achievement_GetNotificationDesc(), sizeof(ach_desc) - 1);
       ach_notify_until = SDL_GetTicks() + 3000;
       Achievement_ClearNotification();
     }
 
-    if (ach_notify_until > 0 && SDL_GetTicks() < ach_notify_until) {
-      SettingsMenu_RenderNotify(g_renderer, ach_text_buf);
+    // Only show notification overlay during gameplay modules
+    bool in_gameplay = (main_module_index == 7 || main_module_index == 9 || main_module_index == 14);
+    if (ach_notify_until > 0 && SDL_GetTicks() < ach_notify_until && in_gameplay) {
+      SettingsMenu_RenderAchievementNotify(g_renderer, ach_id, ach_title, ach_desc);
+    } else if (!in_gameplay) {
+      ach_notify_until = 0;
     } else {
       ach_notify_until = 0;
-      ach_text_buf[0] = 0;
+      ach_id = 0;
+      ach_title[0] = 0;
+      ach_desc[0] = 0;
     }
   }
 
@@ -436,6 +444,18 @@ void OpenGLRenderer_Create(struct RendererFuncs *funcs, bool use_opengl_es);
 int main(int argc, char** argv) {
   const char *exe_path = argv[0];
   argc--, argv++;
+  if (argc >= 1 && (strcmp(argv[0], "--help") == 0 || strcmp(argv[0], "-h") == 0)) {
+    printf("Usage: zelda3 [OPTIONS] [rom.sfc]\n");
+    printf("Options:\n");
+    printf("  --config <file>  Use specified config file\n");
+    printf("  --help, -h       Show this help message\n");
+    printf("  --version, -v    Show version information\n");
+    return 0;
+  }
+  if (argc >= 1 && (strcmp(argv[0], "--version") == 0 || strcmp(argv[0], "-v") == 0)) {
+    printf("zelda3 - The Legend of Zelda: A Link to the Past (C reimplementation)\n");
+    return 0;
+  }
   const char *config_file = NULL;
   if (argc >= 2 && strcmp(argv[0], "--config") == 0) {
     config_file = argv[1];
@@ -448,6 +468,7 @@ int main(int argc, char** argv) {
   LoadAssets();
   LoadLinkGraphics();
   Achievement_Init();
+  Achievement_SetEnabled(g_config.achievements_enabled);
 
   ZeldaInitialize();
   g_zenv.ppu->extraLeftRight = UintMin(g_config.extended_aspect_ratio, kPpuExtraLeftRight);
@@ -522,6 +543,7 @@ int main(int argc, char** argv) {
     if (!SecondScreenSDL_Init(window)) {
       fprintf(stderr, "Warning: Failed to initialize second screen\n");
     }
+    SecondScreenSDL_SetLayoutMode(g_config.dual_screen_layout);
   }
 
   SDL_AudioDeviceID device = 0;
@@ -576,6 +598,7 @@ int main(int argc, char** argv) {
                          g_config.extend_y * kPpuRenderFlags_Height240 |
                          g_config.no_sprite_limits * kPpuRenderFlags_NoSpriteLimits;
     ReloadLangpack(g_config.language);
+    Achievement_SetEnabled(g_config.achievements_enabled);
 #ifndef __SWITCH__
     SDL_SetWindowSize(window, g_config.window_width, g_config.window_height);
     if (!g_config.ignore_aspect_ratio)
@@ -713,6 +736,7 @@ int main(int argc, char** argv) {
 
   // Save achievements before cleanup
   Achievement_Save();
+  Achievement_Shutdown();
 
   // Cleanup second screen
   SecondScreenSDL_Destroy();
@@ -768,70 +792,7 @@ static void RenderNumber(uint8 *dst, size_t pitch, int n, bool big) {
     RenderDigit(dst + (i << big), pitch, *s - '0', 0xffffff, big);
 }
 
-// Minimal 5x7 bitmap font for notifications (A-Z, 0-9, space, !)
-static const uint8 kSmallFont[43][5] = {
-  {0x7e,0x09,0x09,0x09,0x7e}, // A
-  {0x7f,0x49,0x49,0x49,0x36}, // B
-  {0x3e,0x41,0x41,0x41,0x22}, // C
-  {0x7f,0x41,0x41,0x41,0x3e}, // D
-  {0x7f,0x49,0x49,0x49,0x41}, // E
-  {0x7f,0x09,0x09,0x09,0x01}, // F
-  {0x3e,0x41,0x49,0x49,0x7a}, // G
-  {0x7f,0x08,0x08,0x08,0x7f}, // H
-  {0x00,0x41,0x7f,0x41,0x00}, // I
-  {0x20,0x40,0x41,0x3f,0x01}, // J
-  {0x7f,0x08,0x14,0x22,0x41}, // K
-  {0x7f,0x40,0x40,0x40,0x40}, // L
-  {0x7f,0x02,0x0c,0x02,0x7f}, // M
-  {0x7f,0x02,0x04,0x08,0x7f}, // N
-  {0x3e,0x41,0x41,0x41,0x3e}, // O
-  {0x7f,0x09,0x09,0x09,0x06}, // P
-  {0x3e,0x41,0x51,0x21,0x5e}, // Q
-  {0x7f,0x09,0x19,0x29,0x46}, // R
-  {0x46,0x49,0x49,0x49,0x31}, // S
-  {0x01,0x01,0x7f,0x01,0x01}, // T
-  {0x3f,0x40,0x40,0x40,0x3f}, // U
-  {0x1f,0x20,0x40,0x20,0x1f}, // V
-  {0x7f,0x20,0x18,0x20,0x7f}, // W
-  {0x63,0x14,0x08,0x14,0x63}, // X
-  {0x03,0x04,0x78,0x04,0x03}, // Y
-  {0x61,0x51,0x49,0x45,0x43}, // Z
-  {0x00,0x00,0x00,0x00,0x00}, // space
-  {0x00,0x34,0x00,0x00,0x00}, // !
-  {0x3e,0x41,0x41,0x41,0x3e}, // 0
-  {0x00,0x42,0x7f,0x40,0x00}, // 1
-  {0x42,0x61,0x51,0x49,0x46}, // 2
-  {0x21,0x41,0x45,0x4b,0x31}, // 3
-  {0x18,0x14,0x12,0x7f,0x10}, // 4
-  {0x27,0x45,0x45,0x45,0x39}, // 5
-  {0x3c,0x4a,0x49,0x49,0x30}, // 6
-  {0x01,0x71,0x09,0x05,0x03}, // 7
-  {0x36,0x49,0x49,0x49,0x36}, // 8
-  {0x06,0x49,0x49,0x29,0x1e}, // 9
-};
-static int kSmallFontIndex(char c) {
-  if (c >= 'A' && c <= 'Z') return c - 'A';
-  if (c >= 'a' && c <= 'z') return c - 'a';
-  if (c >= '0' && c <= '9') return c - '0' + 28;
-  if (c == ' ') return 27;
-  if (c == '!') return 27;  // reuse space for unknown
-  return 27;
-}
-static void RenderText(uint8 *dst, size_t pitch, const char *text, uint32 color) {
-  for (int i = 0; text[i]; i++) {
-    int idx = kSmallFontIndex(text[i]);
-    const uint8 *glyph = kSmallFont[idx];
-    for (int y = 0; y < 7; y++) {
-      uint32 *row = (uint32 *)(dst + y * pitch * 4);
-      uint8 bits = glyph[y];
-      for (int x = 0; x < 5; x++) {
-        if (bits & (0x20 >> x))
-          row[x] = color;
-      }
-    }
-    dst += 6 * 4;  // advance 6 pixels (5 + 1 spacing)
-  }
-}
+
 
 static void HandleCommand_Locked(uint32 j, bool pressed);
 

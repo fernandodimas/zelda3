@@ -9,3 +9,6 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window);
 // Render a notification text overlay on the given renderer (bottom-right).
 // Uses the same glyph font as the settings menu.
 void SettingsMenu_RenderNotify(SDL_Renderer *renderer, const char *text);
+
+// Render a styled achievement unlock notification (RetroAchievements style).
+void SettingsMenu_RenderAchievementNotify(SDL_Renderer *renderer, uint32_t ach_id, const char *title, const char *desc);

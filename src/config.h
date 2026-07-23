@@ -72,7 +72,9 @@ typedef struct Config {
   uint32 features0;
   bool dual_screen;
   bool show_hud_dual_screen;
+  int dual_screen_layout;
   bool show_settings_menu;
+  bool achievements_enabled;
 
   const char *link_graphics;
   char *memory_buffer;

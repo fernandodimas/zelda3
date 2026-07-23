@@ -5,9 +5,9 @@
 
 // Achievement types
 typedef enum {
-  ACH_TYPE_INSTANT,    // Triggers once when condition met
+  ACH_TYPE_INSTANT,    // Triggers once when condition met (edge-triggered)
   ACH_TYPE_PROGRESS,   // Tracks progress toward a goal
-  ACH_TYPE_CHALLENGE,  // Must be完成ed under special conditions
+  ACH_TYPE_CHALLENGE,  // Must be completed under special conditions
 } AchievementType;
 
 // Achievement categories
@@ -45,17 +45,22 @@ typedef struct {
 // Save file header
 typedef struct {
   uint32_t magic;           // 'ACHV'
-  uint32_t version;         // 1
+  uint32_t version;         // 2
   uint32_t num_achievements;
+  uint32_t checksum;        // Simple checksum of state data
 } AchievementSaveHeader;
 
 // Initialize achievement system
 void Achievement_Init(void);
 
-// Call once per frame (from ZeldaRunFrameInternal)
+// Call once per frame (from ZeldaRunFrameInternal).
+// Internally gates on gameplay module — no external SetInGameplay needed.
 void Achievement_EvaluateFrame(void);
 
-// Save/load
+// Call after loading a save state to suppress false triggers for N frames.
+void Achievement_NotifyStateLoaded(void);
+
+// Save/load persistence
 void Achievement_Save(void);
 void Achievement_Load(void);
 
@@ -67,9 +72,21 @@ int Achievement_GetUnlockedPoints(void);
 const AchievementDef *Achievement_GetDef(int index);
 const AchievementState *Achievement_GetState(uint32_t id);
 bool Achievement_IsUnlocked(uint32_t id);
+uint32_t Achievement_GetProgress(uint32_t id);
+
+// Enable/disable
+void Achievement_SetEnabled(bool enabled);
+bool Achievement_IsEnabled(void);
+
+// Reset all achievement progress
+void Achievement_ResetAll(void);
 
 // Notification system
 bool Achievement_HasNotification(void);
+uint32_t Achievement_GetNotificationId(void);
 const char *Achievement_GetNotificationTitle(void);
 const char *Achievement_GetNotificationDesc(void);
 void Achievement_ClearNotification(void);
+
+// Cleanup
+void Achievement_Shutdown(void);

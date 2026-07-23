@@ -53,3 +53,21 @@ platform/switch/bin/
 platform/switch/*.elf
 platform/switch/*.nacp
 platform/switch/*.nro
+
+# Saves & badges
+saves/
+
+# Compiled test binary
+run_tests
+
+# IDE / tooling
+.qoder/
+AGENTS.md
+PLAN-*.md
+
+# Audio source files
+steam-achievement.mp3
+steam-achievement.wav
+
+# Switch compiled assets
+src/platform/switch/zelda3_assets.dat

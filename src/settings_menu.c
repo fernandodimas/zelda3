@@ -13,9 +13,13 @@
 
 #include "types.h"
 #include "config.h"
+#include "achievement.h"
 #include "second_screen.h"
+#include "second_screen_sdl.h"
 #include "second_screen_tables.h"
 #include "platform/linux/ss_sheets.h"
+
+
 
 extern SDL_Renderer *g_renderer;
 
@@ -60,7 +64,10 @@ static int local_run_without_emu;
 static int local_display_perf_title;
 static int local_dual_screen;
 static int local_show_hud_dual_screen;
+static int local_dual_screen_layout;
 static int local_language;
+static int local_achievements_enabled;
+static float g_ach_scroll;
 
 // ============ Draw primitives ============
 static void set_color(uint32 c) {
@@ -150,11 +157,6 @@ static void draw_text(const char *s, float x, float y, float sc) {
     else { draw_char_fallback(ch, cx, y, sc); }
     cx += 8 * sc;
   }
-}
-
-static void draw_text_dim(const char *s, float x, float y, float sc) {
-  // Draw text with dim color by drawing a dark shadow first
-  draw_text(s, x + 1, y + 1, sc);
 }
 
 static void menu_box(float x, float y, float w, float h, uint32 border) {
@@ -295,8 +297,8 @@ static void scan_langs(void) {
 }
 
 // ============ Settings definitions ============
-enum { TAB_GRAPHICS = 0, TAB_AUDIO, TAB_GAMEPLAY, TAB_SWITCH, TAB_COUNT };
-static const char *kTabNames[] = { "GRAFICOS", "AUDIO", "GAMEPLAY", "SWITCH" };
+enum { TAB_GRAPHICS = 0, TAB_AUDIO, TAB_GAMEPLAY, TAB_SWITCH, TAB_ACHIEVEMENTS, TAB_COUNT };
+static const char *kTabNames[] = { "GRAFICOS", "AUDIO", "GAMEPLAY", "SWITCH", "CONQUISTAS" };
 
 typedef enum { OPT_TOGGLE, OPT_LIST, OPT_INFO } OptType;
 
@@ -313,7 +315,7 @@ typedef struct {
 static const char *kFullscreen[] = { "JANELA", "FS DESKTOP", "FS EXCLUSIVO" };
 static const char *kResolution[] = { "640X480", "960X544", "1280X720", "1920X1080" };
 static const char *kAspect[] = { "4:3", "16:9", "16:10" };
-static const char *kYesNo[] = { "SIM", "NAO" };
+
 
 static int g_res_index = 2; // default 1280x720
 
@@ -372,21 +374,30 @@ static SettingItem g_gameplay_items[] = {
 #define GAMEPLAY_COUNT (sizeof(g_gameplay_items) / sizeof(g_gameplay_items[0]))
 
 // Switch settings
+static const char *kDualScreenLayout[] = { "TELA CHEIA", "HORIZONTAL", "VERTICAL (TATE)" };
 static SettingItem g_switch_items[] = {
   { "TELA DIVIDIDA",  OPT_TOGGLE, &local_dual_screen, 0, NULL, 0, 1 },
+  { "MODO LAYOUT",    OPT_LIST, &local_dual_screen_layout, 3, kDualScreenLayout, 0, 2 },
 };
 #define SWITCH_COUNT (sizeof(g_switch_items) / sizeof(g_switch_items[0]))
 
-static SettingItem *g_tab_items[] = {
-  g_graphics_items, g_audio_items, g_gameplay_items, g_switch_items
+// Achievements settings
+static int local_ach_reset = 0;
+static SettingItem g_achievements_items[] = {
+  { "CONQUISTAS", OPT_TOGGLE, &local_achievements_enabled, 0, NULL, 0, 1 },
+  { "REINICIAR",  OPT_TOGGLE, &local_ach_reset, 0, NULL, 0, 1 },
 };
-static int g_tab_counts[] = { GRAPHICS_COUNT, AUDIO_COUNT, GAMEPLAY_COUNT, SWITCH_COUNT };
+#define ACHIEVEMENTS_COUNT (sizeof(g_achievements_items) / sizeof(g_achievements_items[0]))
+
+static SettingItem *g_tab_items[] = {
+  g_graphics_items, g_audio_items, g_gameplay_items, g_switch_items, g_achievements_items
+};
+static int g_tab_counts[] = { GRAPHICS_COUNT, AUDIO_COUNT, GAMEPLAY_COUNT, SWITCH_COUNT, ACHIEVEMENTS_COUNT };
 
 // ============ Menu state ============
 static int g_cur_tab;
 static int g_cur_row;
 static float g_scroll_y;
-static float g_scroll_target;
 static uint8 g_last_hat;
 static int g_stick_cooldown;
 
@@ -542,6 +553,10 @@ static void save_ini(void) {
   g_config.display_perf_title = local_display_perf_title != 0;
   g_config.dual_screen = local_dual_screen != 0;
   g_config.show_hud_dual_screen = local_show_hud_dual_screen != 0;
+  g_config.dual_screen_layout = local_dual_screen_layout;
+  SecondScreenSDL_SetLayoutMode(g_config.dual_screen_layout);
+  g_config.achievements_enabled = local_achievements_enabled != 0;
+  Achievement_SetEnabled(g_config.achievements_enabled);
   SS_RefreshHud();
   // Save language selection
   if (local_language >= 0 && local_language < g_lang_count)
@@ -564,7 +579,7 @@ static void save_ini(void) {
   if (!f) return;
 
   // Track which keys exist in INI
-  bool had_show_hud = false, had_dual = false, had_show_menu = false;
+  bool had_show_hud = false, had_dual = false, had_show_menu = false, had_ach = false, had_layout = false;
 
   for (int i = 0; i < line_count; i++) {
     char *line = lines[i];
@@ -573,6 +588,7 @@ static void save_ini(void) {
     if (starts_with(line, "Autosave"))            { write_ini_value(f, "Autosave", "%d", g_config.autosave); continue; }
     if (starts_with(line, "SaveSlot"))            { write_ini_value(f, "SaveSlot", "%d", g_config.save_slot); continue; }
     if (starts_with(line, "DualScreen"))          { write_ini_value(f, "DualScreen", "%d", g_config.dual_screen); had_dual = true; continue; }
+    if (starts_with(line, "DualScreenLayout"))   { write_ini_value(f, "DualScreenLayout", "%d", g_config.dual_screen_layout); had_layout = true; continue; }
     if (starts_with(line, "ShowHudDualScreen"))   { write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen); had_show_hud = true; continue; }
     if (starts_with(line, "ShowSettingsMenu"))    { write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu); had_show_menu = true; continue; }
     if (starts_with(line, "RunWithoutEmu"))       { write_ini_value(f, "RunWithoutEmu", "%d", g_config.run_without_emu); continue; }
@@ -597,6 +613,7 @@ static void save_ini(void) {
     if (starts_with(line, "AudioChannels"))       { write_ini_value(f, "AudioChannels", "%d", g_config.audio_channels); continue; }
     if (starts_with(line, "AudioSamples"))        { write_ini_value(f, "AudioSamples", "%d", g_config.audio_samples); continue; }
     if (starts_with(line, "EnableMSU"))           { write_ini_value(f, "EnableMSU", "%d", g_config.enable_msu); continue; }
+    if (starts_with(line, "AchievementsEnabled")) { write_ini_value(f, "AchievementsEnabled", "%d", g_config.achievements_enabled); had_ach = true; continue; }
     if (starts_with(line, "RomPath"))             { fprintf(f, "RomPath = %s\n", g_config.rom_path ? g_config.rom_path : ""); continue; }
 
     // Pass through unchanged
@@ -606,9 +623,188 @@ static void save_ini(void) {
   // Write missing keys that may not exist in old INI files
   if (!had_show_hud) write_ini_value(f, "ShowHudDualScreen", "%d", g_config.show_hud_dual_screen);
   if (!had_dual) write_ini_value(f, "DualScreen", "%d", g_config.dual_screen);
+  if (!had_layout) write_ini_value(f, "DualScreenLayout", "%d", g_config.dual_screen_layout);
   if (!had_show_menu) write_ini_value(f, "ShowSettingsMenu", "%d", g_config.show_settings_menu);
+  if (!had_ach) write_ini_value(f, "AchievementsEnabled", "%d", g_config.achievements_enabled);
 
   fclose(f);
+}
+
+// ============ Draw achievement list ============
+static int ach_sort_order[256];
+static int ach_sort_count = 0;
+
+static void build_ach_sort(void) {
+  int total = Achievement_GetTotal();
+  ach_sort_count = total;
+  for (int i = 0; i < total; i++) ach_sort_order[i] = i;
+  // Sort: unlocked first, then by category, then by original order
+  for (int i = 0; i < total - 1; i++) {
+    for (int j = i + 1; j < total; j++) {
+      int a = ach_sort_order[i], b = ach_sort_order[j];
+      const AchievementDef *da = Achievement_GetDef(a);
+      const AchievementDef *db = Achievement_GetDef(b);
+      if (!da || !db) continue;
+      bool ua = Achievement_IsUnlocked(da->id);
+      bool ub = Achievement_IsUnlocked(db->id);
+      bool swap = false;
+      if (ua && !ub) swap = true;       // unlocked before locked
+      else if (ua == ub) {
+        if (da->category != db->category) swap = da->category > db->category;
+        else swap = a > b;              // stable order within same category
+      }
+      if (swap) { ach_sort_order[i] = b; ach_sort_order[j] = a; }
+    }
+  }
+}
+
+static void draw_achievement_list(float x, float y, float w, float h) {
+  int total = Achievement_GetTotal();
+  int unlocked = Achievement_GetUnlockedCount();
+  int total_pts = Achievement_GetTotalPoints();
+  int unlocked_pts = Achievement_GetUnlockedPoints();
+
+  // Header
+  char header[128];
+  snprintf(header, sizeof(header), "%d/%d DESBLOQUEADAS (%d/%d PONTOS)", unlocked, total, unlocked_pts, total_pts);
+  draw_text(header, x, y, 0.6f * menu_u);
+
+  // Clip to visible area
+  float header_h = 8 * menu_u;
+  SDL_Rect clip = {(int)x, (int)(y + header_h), (int)w, (int)(h - header_h)};
+  SDL_RenderSetClipRect(menu_r, &clip);
+
+  float item_h = 40 * menu_u;
+  float badge_size = 32 * menu_u;
+  float list_y = y + header_h;
+
+  build_ach_sort();
+
+  for (int si = 0; si < ach_sort_count; si++) {
+    int i = ach_sort_order[si];
+    float ry = list_y + si * item_h - g_ach_scroll;
+    if (ry + item_h < list_y || ry > y + h) continue;
+
+    const AchievementDef *def = Achievement_GetDef(i);
+    if (!def) continue;
+    const AchievementState *state = Achievement_GetState(def->id);
+    bool is_unlocked = state && state->unlocked;
+
+    // Category-colored badge circle
+    static const uint32 cat_cols[] = {
+      0xFF4169E1, 0xFF32CD32, 0xFFDC143C, 0xFFFF8C00, 0xFF9467BD, 0xFF808080,
+    };
+    uint32 col = (def->category < 6) ? cat_cols[def->category] : 0xFF808080;
+    if (!is_unlocked) {
+      uint32 r2 = ((col >> 16) & 0xFF) / 2;
+      uint32 g2 = ((col >> 8) & 0xFF) / 2;
+      uint32 b2 = (col & 0xFF) / 2;
+      col = 0xFF000000 | (r2 << 16) | (g2 << 8) | b2;
+    }
+    // Draw circle
+    {
+      float cx = x + badge_size / 2;
+      float cy = ry + badge_size / 2;
+      float rad = badge_size / 2 - 1 * menu_u;
+      for (float dy = -rad; dy <= rad; dy += 1 * menu_u) {
+        float hw = SDL_sqrtf(rad * rad - dy * dy);
+        set_color(col);
+        SDL_FRect ln = {cx - hw, cy + dy, hw * 2, 1 * menu_u};
+        SDL_RenderFillRectF(menu_r, &ln);
+      }
+    }
+    // Category symbol
+    {
+      float cx = x + badge_size / 2;
+      float cy = ry + badge_size / 2;
+      float s = badge_size / 5;
+      set_color(is_unlocked ? 0xFFFFFFFF : 0xFFC0C0C0);
+      switch (def->category) {
+        case ACH_CAT_STORY: {
+          SDL_FRect v = {cx - 1*menu_u, cy - s, 2*menu_u, s*2};
+          SDL_FRect h = {cx - s*0.6f, cy - s*0.3f, s*1.2f, 2*menu_u};
+          SDL_RenderFillRectF(menu_r, &v); SDL_RenderFillRectF(menu_r, &h);
+        } break;
+        case ACH_CAT_COLLECT: {
+          float cr = s * 0.5f;
+          for (float dy = -cr; dy <= cr; dy += 1*menu_u) {
+            float hw = SDL_sqrtf(cr*cr - dy*dy);
+            SDL_FRect l = {cx - hw, cy + dy, hw*2, 1*menu_u};
+            SDL_RenderFillRectF(menu_r, &l);
+          }
+        } break;
+        case ACH_CAT_BOSS: {
+          SDL_FRect d1 = {cx - s*0.6f, cy - s*0.6f, 2*menu_u, s*1.2f};
+          SDL_FRect d2 = {cx + s*0.6f - 2*menu_u, cy - s*0.6f, 2*menu_u, s*1.2f};
+          SDL_RenderFillRectF(menu_r, &d1); SDL_RenderFillRectF(menu_r, &d2);
+        } break;
+        case ACH_CAT_CHALLENGE: {
+          SDL_FRect h2 = {cx - s*0.7f, cy - 1*menu_u, s*1.4f, 2*menu_u};
+          SDL_FRect v2 = {cx - 1*menu_u, cy - s*0.7f, 2*menu_u, s*1.4f};
+          SDL_RenderFillRectF(menu_r, &h2); SDL_RenderFillRectF(menu_r, &v2);
+        } break;
+        case ACH_CAT_EXPLORATION: {
+          for (float dy = -s*0.6f; dy <= s*0.6f; dy += 1*menu_u) {
+            float hw = (s*0.6f - SDL_fabsf(dy)) * 0.8f;
+            SDL_FRect l = {cx - hw, cy + dy, hw*2, 1*menu_u};
+            SDL_RenderFillRectF(menu_r, &l);
+          }
+        } break;
+        default: {
+          SDL_FRect dot = {cx - 2*menu_u, cy - 2*menu_u, 4*menu_u, 4*menu_u};
+          SDL_RenderFillRectF(menu_r, &dot);
+        } break;
+      }
+    }
+    if (!is_unlocked) {
+      set_color(0x60000000);
+      SDL_FRect ov = {x, ry, badge_size, badge_size};
+      SDL_RenderFillRectF(menu_r, &ov);
+    }
+
+    // Name
+    float text_x = x + badge_size + 6 * menu_u;
+    draw_text(def->title, text_x, ry + 2 * menu_u, 0.55f * menu_u);
+
+    // Points
+    char pts[16];
+    snprintf(pts, sizeof(pts), "%dP", def->points);
+    float pts_x = x + w - 24 * menu_u;
+    draw_text(pts, pts_x, ry + 2 * menu_u, 0.55f * menu_u);
+
+    // Status
+    const char *status = is_unlocked ? "OK" : "---";
+    uint32 status_col = is_unlocked ? COL_GREEN : COL(100, 100, 100);
+    float status_x = pts_x - 40 * menu_u;
+    set_color(status_col);
+    draw_text(status, status_x, ry + 2 * menu_u, 0.45f * menu_u);
+
+    // Progress bar for progress achievements
+    if (def->type == ACH_TYPE_PROGRESS && def->progress_max > 0) {
+      uint32 cur_progress = state ? state->progress : 0;
+      float progress = (float)cur_progress / def->progress_max;
+      if (progress > 1.0f) progress = 1.0f;
+      float bar_x = text_x;
+      float bar_y = ry + 14 * menu_u;
+      float bar_w = w - (badge_size + 6 * menu_u) - 24 * menu_u;
+      float bar_h = 5 * menu_u;
+      fill_rect(bar_x, bar_y, bar_w, bar_h, COL(40, 40, 40));
+      if (progress > 0)
+        fill_rect(bar_x, bar_y, bar_w * progress, bar_h, COL_GREEN);
+      // Progress text
+      char ptxt[32];
+      snprintf(ptxt, sizeof(ptxt), "%d/%d", cur_progress, def->progress_max);
+      draw_text(ptxt, bar_x + bar_w + 4 * menu_u, bar_y - 1 * menu_u, 0.4f * menu_u);
+    } else if (!is_unlocked) {
+      // Description hint for locked achievements
+      if (def->description && def->description[0]) {
+        set_color(0xFF808080);
+        draw_text(def->description, text_x, ry + 14 * menu_u, 0.4f * menu_u);
+      }
+    }
+  }
+
+  SDL_RenderSetClipRect(menu_r, NULL);
 }
 
 // ============ Main menu loop ============
@@ -616,6 +812,7 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
   menu_r = renderer;
   g_cur_tab = 0;
   g_cur_row = 0;
+  g_ach_scroll = 0;
 
   // Get window size
   SDL_GetRendererOutputSize(menu_r, &menu_W, &menu_H);
@@ -669,6 +866,8 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
   local_display_perf_title = g_config.display_perf_title;
   local_dual_screen = g_config.dual_screen;
   local_show_hud_dual_screen = g_config.show_hud_dual_screen;
+  local_dual_screen_layout = g_config.dual_screen_layout;
+  local_achievements_enabled = g_config.achievements_enabled ? 1 : 0;
   // Find language index from config
   local_language = 0;
   if (g_config.language) {
@@ -725,18 +924,44 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           g_cur_tab = (g_cur_tab + 1) % TAB_COUNT;
           g_cur_row = 0;
           g_scroll_y = 0;
+          g_ach_scroll = 0;
           break;
         case SDLK_LEFT:
           // Prev tab
           g_cur_tab = (g_cur_tab + TAB_COUNT - 1) % TAB_COUNT;
           g_cur_row = 0;
           g_scroll_y = 0;
+          g_ach_scroll = 0;
           break;
         case SDLK_UP:
-          if (g_cur_row > 0) g_cur_row--;
+          if (g_cur_tab == TAB_ACHIEVEMENTS) {
+            if (g_cur_row > 0) {
+              g_cur_row--;
+            } else {
+              g_ach_scroll -= 40 * menu_u;
+              if (g_ach_scroll < 0) g_ach_scroll = 0;
+            }
+          } else {
+            if (g_cur_row > 0) g_cur_row--;
+          }
           break;
         case SDLK_DOWN:
-          if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+          if (g_cur_tab == TAB_ACHIEVEMENTS) {
+            if (g_cur_row < g_tab_counts[g_cur_tab] - 1) {
+              g_cur_row++;
+            } else {
+              float footer_h2 = 16 * menu_u;
+              float content_y2 = 28 * menu_u + 22 * menu_u + 4 * menu_u;
+              float list_h = menu_H - footer_h2 - 2 * menu_u - content_y2 - 18 * menu_u;
+              int total = Achievement_GetTotal();
+              float max_ach = total * 40 * menu_u - list_h;
+              if (max_ach < 0) max_ach = 0;
+              g_ach_scroll += 40 * menu_u;
+              if (g_ach_scroll > max_ach) g_ach_scroll = max_ach;
+            }
+          } else {
+            if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+          }
           break;
         case SDLK_LEFTBRACKET:  // [
         case SDLK_MINUS:
@@ -744,7 +969,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           {
             SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
             if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             } else if (item->type == OPT_LIST) {
               int *val = item->value_ptr;
               if (*val > item->min_val) (*val)--;
@@ -758,7 +988,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           {
             SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
             if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             } else if (item->type == OPT_LIST) {
               int *val = item->value_ptr;
               if (*val < item->max_val) (*val)++;
@@ -771,7 +1006,13 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           {
             SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
             if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              // Check for reset achievements action
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             } else if (item->type == OPT_LIST) {
               int *val = item->value_ptr;
               if (*val < item->max_val) (*val)++;
@@ -801,7 +1042,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           {
             SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
             if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             } else if (item->type == OPT_LIST) {
               int *val = item->value_ptr;
               if (*val < item->max_val) (*val)++;
@@ -819,7 +1065,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           {
             SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
             if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             } else if (item->type == OPT_LIST) {
               int *val = item->value_ptr;
               if (*val < item->max_val) (*val)++;
@@ -832,17 +1083,43 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           g_cur_tab = (g_cur_tab + TAB_COUNT - 1) % TAB_COUNT;
           g_cur_row = 0;
           g_scroll_y = 0;
+          g_ach_scroll = 0;
           break;
         case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
           g_cur_tab = (g_cur_tab + 1) % TAB_COUNT;
           g_cur_row = 0;
           g_scroll_y = 0;
+          g_ach_scroll = 0;
           break;
         case SDL_CONTROLLER_BUTTON_DPAD_UP:
-          if (g_cur_row > 0) g_cur_row--;
+          if (g_cur_tab == TAB_ACHIEVEMENTS) {
+            if (g_cur_row > 0) {
+              g_cur_row--;
+            } else {
+              g_ach_scroll -= 40 * menu_u;
+              if (g_ach_scroll < 0) g_ach_scroll = 0;
+            }
+          } else {
+            if (g_cur_row > 0) g_cur_row--;
+          }
           break;
         case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-          if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+          if (g_cur_tab == TAB_ACHIEVEMENTS) {
+            if (g_cur_row < g_tab_counts[g_cur_tab] - 1) {
+              g_cur_row++;
+            } else {
+              float footer_h2 = 16 * menu_u;
+              float content_y2 = 28 * menu_u + 22 * menu_u + 4 * menu_u;
+              float list_h = menu_H - footer_h2 - 2 * menu_u - content_y2 - 18 * menu_u;
+              int total = Achievement_GetTotal();
+              float max_ach = total * 40 * menu_u - list_h;
+              if (max_ach < 0) max_ach = 0;
+              g_ach_scroll += 40 * menu_u;
+              if (g_ach_scroll > max_ach) g_ach_scroll = max_ach;
+            }
+          } else {
+            if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+          }
           break;
         case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
           {
@@ -852,7 +1129,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
               if (*val > item->min_val) (*val)--;
               else *val = item->max_val;
             } else if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             }
           }
           break;
@@ -864,7 +1146,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
               if (*val < item->max_val) (*val)++;
               else *val = item->min_val;
             } else if (item->type == OPT_TOGGLE) {
-              *item->value_ptr = !(*item->value_ptr);
+              if (item == &g_achievements_items[1]) {
+                Achievement_ResetAll();
+                local_ach_reset = 0;
+              } else {
+                *item->value_ptr = !(*item->value_ptr);
+              }
             }
           }
           break;
@@ -880,9 +1167,33 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           g_last_hat = hat;
           if (changed & hat) {  // Only on press, not release
             if (hat & SDL_HAT_UP) {
-              if (g_cur_row > 0) g_cur_row--;
+              if (g_cur_tab == TAB_ACHIEVEMENTS) {
+                if (g_cur_row > 0) {
+                  g_cur_row--;
+                } else {
+                  g_ach_scroll -= 40 * menu_u;
+                  if (g_ach_scroll < 0) g_ach_scroll = 0;
+                }
+              } else {
+                if (g_cur_row > 0) g_cur_row--;
+              }
             } else if (hat & SDL_HAT_DOWN) {
-              if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+              if (g_cur_tab == TAB_ACHIEVEMENTS) {
+                if (g_cur_row < g_tab_counts[g_cur_tab] - 1) {
+                  g_cur_row++;
+                } else {
+                  float footer_h2 = 16 * menu_u;
+                  float content_y2 = 28 * menu_u + 22 * menu_u + 4 * menu_u;
+                  float list_h = menu_H - footer_h2 - 2 * menu_u - content_y2 - 18 * menu_u;
+                  int total = Achievement_GetTotal();
+                  float max_ach = total * 40 * menu_u - list_h;
+                  if (max_ach < 0) max_ach = 0;
+                  g_ach_scroll += 40 * menu_u;
+                  if (g_ach_scroll > max_ach) g_ach_scroll = max_ach;
+                }
+              } else {
+                if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+              }
             } else if (hat & SDL_HAT_LEFT) {
               SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
               if (item->type == OPT_LIST) {
@@ -890,7 +1201,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
                 if (*val > item->min_val) (*val)--;
                 else *val = item->max_val;
               } else if (item->type == OPT_TOGGLE) {
-                *item->value_ptr = !(*item->value_ptr);
+                if (item == &g_achievements_items[1]) {
+                  Achievement_ResetAll();
+                  local_ach_reset = 0;
+                } else {
+                  *item->value_ptr = !(*item->value_ptr);
+                }
               }
             } else if (hat & SDL_HAT_RIGHT) {
               SettingItem *item = &g_tab_items[g_cur_tab][g_cur_row];
@@ -899,7 +1215,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
                 if (*val < item->max_val) (*val)++;
                 else *val = item->min_val;
               } else if (item->type == OPT_TOGGLE) {
-                *item->value_ptr = !(*item->value_ptr);
+                if (item == &g_achievements_items[1]) {
+                  Achievement_ResetAll();
+                  local_ach_reset = 0;
+                } else {
+                  *item->value_ptr = !(*item->value_ptr);
+                }
               }
             }
           }
@@ -913,10 +1234,34 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
           int threshold = 16000;
           if (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
             if (event.caxis.value < -threshold) {
-              if (g_cur_row > 0) g_cur_row--;
+              if (g_cur_tab == TAB_ACHIEVEMENTS) {
+                if (g_cur_row > 0) {
+                  g_cur_row--;
+                } else {
+                  g_ach_scroll -= 40 * menu_u;
+                  if (g_ach_scroll < 0) g_ach_scroll = 0;
+                }
+              } else {
+                if (g_cur_row > 0) g_cur_row--;
+              }
               g_stick_cooldown = 12;
             } else if (event.caxis.value > threshold) {
-              if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+              if (g_cur_tab == TAB_ACHIEVEMENTS) {
+                if (g_cur_row < g_tab_counts[g_cur_tab] - 1) {
+                  g_cur_row++;
+                } else {
+                  float footer_h2 = 16 * menu_u;
+                  float content_y2 = 28 * menu_u + 22 * menu_u + 4 * menu_u;
+                  float list_h = menu_H - footer_h2 - 2 * menu_u - content_y2 - 18 * menu_u;
+                  int total = Achievement_GetTotal();
+                  float max_ach = total * 40 * menu_u - list_h;
+                  if (max_ach < 0) max_ach = 0;
+                  g_ach_scroll += 40 * menu_u;
+                  if (g_ach_scroll > max_ach) g_ach_scroll = max_ach;
+                }
+              } else {
+                if (g_cur_row < g_tab_counts[g_cur_tab] - 1) g_cur_row++;
+              }
               g_stick_cooldown = 12;
             }
           } else if (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) {
@@ -927,7 +1272,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
                 if (*val > item->min_val) (*val)--;
                 else *val = item->max_val;
               } else if (item->type == OPT_TOGGLE) {
-                *item->value_ptr = !(*item->value_ptr);
+                if (item == &g_achievements_items[1]) {
+                  Achievement_ResetAll();
+                  local_ach_reset = 0;
+                } else {
+                  *item->value_ptr = !(*item->value_ptr);
+                }
               }
               g_stick_cooldown = 12;
             } else if (event.caxis.value > threshold) {
@@ -936,7 +1286,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
                 if (*val < item->max_val) (*val)++;
                 else *val = item->min_val;
               } else if (item->type == OPT_TOGGLE) {
-                *item->value_ptr = !(*item->value_ptr);
+                if (item == &g_achievements_items[1]) {
+                  Achievement_ResetAll();
+                  local_ach_reset = 0;
+                } else {
+                  *item->value_ptr = !(*item->value_ptr);
+                }
               }
               g_stick_cooldown = 12;
             }
@@ -958,6 +1313,7 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
               g_cur_tab = new_tab;
               g_cur_row = 0;
               g_scroll_y = 0;
+              g_ach_scroll = 0;
             }
           }
 
@@ -975,7 +1331,12 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
               // Right side = change value
               if (tx > 20 * menu_u + row_w * 0.6f) {
                 if (item->type == OPT_TOGGLE) {
-                  *item->value_ptr = !(*item->value_ptr);
+                  if (item == &g_achievements_items[1]) {
+                    Achievement_ResetAll();
+                    local_ach_reset = 0;
+                  } else {
+                    *item->value_ptr = !(*item->value_ptr);
+                  }
                 } else if (item->type == OPT_LIST) {
                   int *val = item->value_ptr;
                   if (*val < item->max_val) (*val)++;
@@ -1018,32 +1379,43 @@ bool SettingsMenu_Run(SDL_Renderer *renderer, SDL_Window *window) {
     SettingItem *items = g_tab_items[g_cur_tab];
     int count = g_tab_counts[g_cur_tab];
 
-    // Update scroll target to keep selected row visible
-    float target_y = g_cur_row * row_step;
-    if (target_y < g_scroll_y)
-      g_scroll_y = target_y;
-    if (target_y + row_h > g_scroll_y + visible_h)
-      g_scroll_y = target_y + row_h - visible_h;
-    if (g_scroll_y < 0) g_scroll_y = 0;
-    float max_scroll = count * row_step - visible_h;
-    if (max_scroll < 0) max_scroll = 0;
-    if (g_scroll_y > max_scroll) g_scroll_y = max_scroll;
+    if (g_cur_tab == TAB_ACHIEVEMENTS) {
+      // Achievements tab: toggle row + reset row + scrollable achievement list
+      draw_setting_row(&items[0], 12 * menu_u, content_y, row_w, row_h, g_cur_row == 0);
+      if (count > 1)
+        draw_setting_row(&items[1], 12 * menu_u, content_y + row_step, row_w, row_h, g_cur_row == 1);
 
-    // Draw visible rows only
-    SDL_Rect clip = {0, (int)content_y, menu_W, (int)visible_h};
-    SDL_RenderSetClipRect(menu_r, &clip);
-    for (int i = 0; i < count; i++) {
-      float ry = content_y + i * row_step - g_scroll_y;
-      if (ry + row_h < content_y || ry > content_y + visible_h) continue;
-      draw_setting_row(&items[i], 12 * menu_u, ry, row_w, row_h, i == g_cur_row);
+      float list_y = content_y + row_step * 2;
+      float list_h = visible_h - row_step * 2;
+      draw_achievement_list(12 * menu_u, list_y, row_w, list_h);
+    } else {
+      // Update scroll target to keep selected row visible
+      float target_y = g_cur_row * row_step;
+      if (target_y < g_scroll_y)
+        g_scroll_y = target_y;
+      if (target_y + row_h > g_scroll_y + visible_h)
+        g_scroll_y = target_y + row_h - visible_h;
+      if (g_scroll_y < 0) g_scroll_y = 0;
+      float max_scroll = count * row_step - visible_h;
+      if (max_scroll < 0) max_scroll = 0;
+      if (g_scroll_y > max_scroll) g_scroll_y = max_scroll;
+
+      // Draw visible rows only
+      SDL_Rect clip = {0, (int)content_y, menu_W, (int)visible_h};
+      SDL_RenderSetClipRect(menu_r, &clip);
+      for (int i = 0; i < count; i++) {
+        float ry = content_y + i * row_step - g_scroll_y;
+        if (ry + row_h < content_y || ry > content_y + visible_h) continue;
+        draw_setting_row(&items[i], 12 * menu_u, ry, row_w, row_h, i == g_cur_row);
+      }
+      SDL_RenderSetClipRect(menu_r, NULL);
+
+      // ROM section (below settings)
+      float rom_y = content_y + count * row_step - g_scroll_y + 4 * menu_u;
+      float rom_w = menu_W - 24 * menu_u;
+      if (rom_y + 20 * menu_u < content_y + visible_h)
+        draw_rom_section(12 * menu_u, rom_y, rom_w);
     }
-    SDL_RenderSetClipRect(menu_r, NULL);
-
-    // ROM section (below settings)
-    float rom_y = content_y + count * row_step - g_scroll_y + 4 * menu_u;
-    float rom_w = menu_W - 24 * menu_u;
-    if (rom_y + 20 * menu_u < content_y + visible_h)
-      draw_rom_section(12 * menu_u, rom_y, rom_w);
 
     // Footer
     draw_footer(menu_H - footer_h - 2 * menu_u, footer_h);
@@ -1082,4 +1454,142 @@ void SettingsMenu_RenderNotify(SDL_Renderer *renderer, const char *text) {
 
   // Green text
   draw_text(text, bx + 6 * u, by + (bh - 5 * u) / 2, 0.7f * u);
+}
+
+// ============ Achievement unlock notification (RetroAchievements style) ============
+
+void SettingsMenu_RenderAchievementNotify(SDL_Renderer *renderer, uint32_t ach_id, const char *title, const char *desc) {
+  if (!title || !title[0]) return;
+  if (!tex_letters || !tex_glyphs) load_menu_textures();
+  if (!tex_letters || !tex_glyphs) return;
+
+  menu_r = renderer;
+  int ww, wh;
+  SDL_GetRendererOutputSize(renderer, &ww, &wh);
+  float u = (ww < wh ? ww : wh) / 240.0f;
+  if (u < 1.0f) u = 1.0f;
+
+  // Panel dimensions
+  float icon_size = 48 * u;
+  float panel_w = 220 * u;
+  float panel_h = 60 * u;
+  float pad = 10 * u;
+  float px = ww - panel_w - pad;
+  float py = wh - panel_h - pad;
+
+  // Semi-transparent background with gold border
+  set_color(0xA0101020);
+  SDL_FRect bg = {px, py, panel_w, panel_h};
+  SDL_RenderFillRectF(renderer, &bg);
+
+  // Gold border
+  set_color(0xFFD0A020);
+  SDL_FRect top = {px, py, panel_w, 2 * u};
+  SDL_FRect bot = {px, py + panel_h - 2 * u, panel_w, 2 * u};
+  SDL_FRect lft = {px, py, 2 * u, panel_h};
+  SDL_FRect rgt = {px + panel_w - 2 * u, py, 2 * u, panel_h};
+  SDL_RenderFillRectF(renderer, &top);
+  SDL_RenderFillRectF(renderer, &bot);
+  SDL_RenderFillRectF(renderer, &lft);
+  SDL_RenderFillRectF(renderer, &rgt);
+
+  // Badge icon (colored circle with category symbol)
+  float icon_x = px + 8 * u;
+  float icon_y = py + (panel_h - icon_size) / 2;
+  
+  bool unlocked = Achievement_IsUnlocked(ach_id);
+  const AchievementDef *def = Achievement_GetDef(ach_id);
+  
+  // Category colors
+  static const uint32_t cat_colors[] = {
+    0xFF4169E1,  // STORY: blue
+    0xFF32CD32,  // COLLECT: green
+    0xFFDC143C,  // BOSS: red
+    0xFFFF8C00,  // CHALLENGE: orange
+    0xFF9467BD,  // EXPLORATION: purple
+    0xFF808080,  // SECRET: gray
+  };
+  uint32_t col = (def && def->category < 6) ? cat_colors[def->category] : 0xFF808080;
+  if (unlocked) {
+    // Bright for unlocked
+    set_color(0xFF000000 | col);
+  } else {
+    // Dimmed for locked
+    uint32_t r = ((col >> 16) & 0xFF) / 2;
+    uint32_t g = ((col >> 8) & 0xFF) / 2;
+    uint32_t b = (col & 0xFF) / 2;
+    set_color(0xFF000000 | (r << 16) | (g << 8) | b);
+  }
+  // Circle background
+  {
+    float cx = icon_x + icon_size / 2;
+    float cy = icon_y + icon_size / 2;
+    float r = icon_size / 2 - 1 * u;
+    // Draw filled circle using small rects
+    for (float dy = -r; dy <= r; dy += 1 * u) {
+      float half_w = SDL_sqrtf(r * r - dy * dy);
+      SDL_FRect line = {cx - half_w, cy + dy, half_w * 2, 1 * u};
+      SDL_RenderFillRectF(renderer, &line);
+    }
+  }
+  // Category symbol in center
+  {
+    float cx = icon_x + icon_size / 2;
+    float cy = icon_y + icon_size / 2;
+    float s = icon_size / 6;
+    set_color(unlocked ? 0xFFFFFFFF : 0xFFC0C0C0);
+    if (def) {
+      switch (def->category) {
+        case ACH_CAT_STORY: // Sword shape (vertical + horizontal)
+          { SDL_FRect v = {cx - 1*u, cy - s, 2*u, s*2}; SDL_RenderFillRectF(renderer, &v); }
+          { SDL_FRect h = {cx - s*0.7f, cy - s*0.3f, s*1.4f, 2*u}; SDL_RenderFillRectF(renderer, &h); }
+          break;
+        case ACH_CAT_COLLECT: // Circle (item)
+          {
+            float cr = s * 0.6f;
+            for (float dy = -cr; dy <= cr; dy += 1*u) {
+              float hw = SDL_sqrtf(cr*cr - dy*dy);
+              SDL_FRect l = {cx - hw, cy + dy, hw*2, 1*u};
+              SDL_RenderFillRectF(renderer, &l);
+            }
+          }
+          break;
+        case ACH_CAT_BOSS: // X mark
+          { SDL_FRect d1 = {cx - s*0.7f, cy - s*0.7f, 2*u, s*1.4f}; SDL_RenderFillRectF(renderer, &d1); }
+          { SDL_FRect d2 = {cx + s*0.7f - 2*u, cy - s*0.7f, 2*u, s*1.4f}; SDL_RenderFillRectF(renderer, &d2); }
+          break;
+        case ACH_CAT_CHALLENGE: // Star
+          { SDL_FRect h = {cx - s*0.8f, cy - 1*u, s*1.6f, 2*u}; SDL_RenderFillRectF(renderer, &h); }
+          { SDL_FRect v = {cx - 1*u, cy - s*0.8f, 2*u, s*1.6f}; SDL_RenderFillRectF(renderer, &v); }
+          break;
+        case ACH_CAT_EXPLORATION: // Diamond
+          {
+            for (float dy = -s*0.7f; dy <= s*0.7f; dy += 1*u) {
+              float hw = (s*0.7f - SDL_fabsf(dy)) * 0.8f;
+              SDL_FRect l = {cx - hw, cy + dy, hw*2, 1*u};
+              SDL_RenderFillRectF(renderer, &l);
+            }
+          }
+          break;
+        default:
+          { SDL_FRect dot = {cx - 2*u, cy - 2*u, 4*u, 4*u}; SDL_RenderFillRectF(renderer, &dot); }
+          break;
+      }
+    }
+  }
+  // Locked overlay
+  if (!unlocked) {
+    set_color(0x80000000);
+    SDL_FRect lock_ov = {icon_x, icon_y, icon_size, icon_size};
+    SDL_RenderFillRectF(renderer, &lock_ov);
+  }
+
+  // Achievement name (gold, larger)
+  float text_x = icon_x + icon_size + 10 * u;
+  draw_text(title, text_x, py + 10 * u, 0.9f * u);
+
+  // Description (white, smaller)
+  if (desc && desc[0]) {
+    draw_text(desc, text_x, py + 30 * u, 0.6f * u);
+  }
 }

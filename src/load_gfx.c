@@ -992,7 +992,6 @@ int Decomp_spr(uint8 *dst, int gfx) {  // 80e772
   if (gfx < 12)
     gfx = 12; // ensure it wont decode bad sheets.
   MemBlk blk = kSprGfx(gfx);
-  const uint8 *sprite_data = GetCompSpritePtr(gfx);
   // If the size is not 0x600 then it's compressed
   if (gfx >= 103 || blk.size != 0x600)
     return Decompress(dst, blk.ptr);
