@@ -18,7 +18,7 @@ endif
 
 # Unit tests — compiles util.c + test_main.c without SDL dependency
 TEST_EXEC:=run_tests
-TEST_CFLAGS:=-O2 -Werror -I . -I src -DSYSTEM_VOLUME_MIXER_AVAILABLE=0
+TEST_CFLAGS:=-std=c11 -O2 -Werror -I . -I src -DSYSTEM_VOLUME_MIXER_AVAILABLE=0
 
 all: $(TARGET_EXEC) zelda3_assets.dat
 $(TARGET_EXEC): $(OBJS) $(RES)
